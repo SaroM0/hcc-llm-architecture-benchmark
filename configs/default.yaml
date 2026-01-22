@@ -9,10 +9,10 @@ provider:
   config: configs/providers/openrouter.yaml
 
 rag:
-  chroma: configs/rag/chroma.yaml
-  chunking: configs/rag/chunking.yaml
-  retrieval: configs/rag/retrieval.yaml
-  embeddings: configs/rag/embeddings.yaml
+  chroma: rag/chroma.yaml
+  chunking: rag/chunking.yaml
+  retrieval: rag/retrieval.yaml
+  embeddings: rag/embeddings.yaml
 
 agents:
   graph: configs/agents/graph.yaml

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -40,10 +41,17 @@ class OpenRouterEmbeddingModel:
             "Content-Type": "application/json",
         }
         request = urllib.request.Request(url, data=payload, headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(request, timeout=self._config.timeout_s) as response:
-                raw = json.loads(response.read().decode("utf-8"))
-        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
-            raise RuntimeError(f"Embedding request failed: {exc}") from exc
+        last_exc: Exception | None = None
+        for attempt in range(5):
+            try:
+                with urllib.request.urlopen(request, timeout=self._config.timeout_s) as response:
+                    raw = json.loads(response.read().decode("utf-8"))
+                last_exc = None
+                break
+            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+                last_exc = exc
+                time.sleep(2**attempt)
+        if last_exc is not None:
+            raise RuntimeError(f"Embedding request failed: {last_exc}") from last_exc
         data = raw.get("data", [])
         return [item.get("embedding", []) for item in data]

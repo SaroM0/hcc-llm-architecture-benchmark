@@ -1,9 +1,9 @@
 id: small_consensus
 arm: A3
 model_roles:
-  consensus: default_large
+  consensus: gpt_oss_20b
 model_keys:
-  - default_large
+  - gpt_oss_20b
 consensus:
   num_doctors: 4
   max_rounds: 3

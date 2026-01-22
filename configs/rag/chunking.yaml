@@ -1,3 +1,3 @@
-strategy: fixed_token
-chunk_size: 512
-chunk_overlap: 64
+strategy: structured_token
+chunk_size: 450
+chunk_overlap: 80

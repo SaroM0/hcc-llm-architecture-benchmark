@@ -1,0 +1,14 @@
+id: smoke_consensus
+arm: A3
+model_roles:
+  consensus: gpt_oss_20b
+model_keys:
+  - gpt_oss_20b
+consensus:
+  num_doctors: 2
+  max_rounds: 1
+  consensus_threshold: 0.6
+llm_params:
+  temperature: 0.2
+  max_tokens: 256
+output_schema: null

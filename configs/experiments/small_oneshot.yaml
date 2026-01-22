@@ -1,9 +1,9 @@
 id: small_oneshot
 arm: A1
 model_roles:
-  oneshot: default_large
+  oneshot: gpt_oss_20b
 model_keys:
-  - default_large
+  - gpt_oss_20b
 llm_params:
   temperature: 0.2
   max_tokens: 512

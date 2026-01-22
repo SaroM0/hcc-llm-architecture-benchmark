@@ -1,5 +1,5 @@
 provider: openrouter
-model: ${OPENROUTER_EMBEDDINGS_MODEL}
+model: BAAI/bge-m3
 batch_size: 64
 
 openrouter:
