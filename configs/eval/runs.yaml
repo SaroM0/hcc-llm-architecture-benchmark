@@ -1,0 +1,17 @@
+seed: 42
+retries: 1
+budgets:
+  max_tokens: 2048
+  max_cost_usd: 5.0
+temperatures:
+  default: 0.2
+
+experiment_suites:
+  - id: large_oneshot
+    mode: oneshot
+    rag: false
+    role_map: {}
+  - id: agentic_large
+    mode: agentic
+    rag: true
+    role_map: {}

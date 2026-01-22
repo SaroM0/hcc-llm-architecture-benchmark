@@ -1,0 +1,14 @@
+chroma:
+  mode: persistent
+  collection: oncology_guidelines_v1
+  tenant: default_tenant
+  database: default_database
+
+  persistent:
+    path: data/indexes/chroma
+
+  http:
+    host: localhost
+    port: 8000
+    ssl: false
+    headers: {}

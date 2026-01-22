@@ -1,0 +1,28 @@
+api:
+  base_url: ${OPENROUTER_BASE_URL}
+  api_key: ${OPENROUTER_API_KEY}
+  timeout_s: 60
+  retries: 3
+  headers: {}
+
+models:
+  default_large:
+    id: ${OPENROUTER_DEFAULT_MODEL}
+    class: large
+    defaults:
+      temperature: 0.2
+      max_tokens: 2048
+
+groups:
+  large: [default_large]
+  small: []
+
+roles:
+  oneshot: default_large
+  router: default_large
+  clinician_a: default_large
+  clinician_b: default_large
+  clinician_c: default_large
+  clinician_d: default_large
+  synthesizer: default_large
+  judge: default_large

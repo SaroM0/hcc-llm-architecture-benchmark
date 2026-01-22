@@ -1,0 +1,13 @@
+name: small_agentic
+provider:
+  model: ${OPENROUTER_DEFAULT_MODEL}
+agents:
+  mode: agentic
+rag:
+  enabled: true
+  configs:
+    chroma: configs/rag/chroma.yaml
+    chunking: configs/rag/chunking.yaml
+    retrieval: configs/rag/retrieval.yaml
+eval:
+  runs: configs/eval/runs.yaml

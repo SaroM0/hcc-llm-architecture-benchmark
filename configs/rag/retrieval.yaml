@@ -1,0 +1,5 @@
+top_k: 6
+filters: {}
+rerank:
+  enabled: false
+  model: null

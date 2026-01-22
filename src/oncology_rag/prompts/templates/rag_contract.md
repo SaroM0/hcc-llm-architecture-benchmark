@@ -1,0 +1,3 @@
+- Use only provided evidence.
+- If evidence is insufficient, say so clearly.
+- Do not provide medical advice or treatment recommendations.

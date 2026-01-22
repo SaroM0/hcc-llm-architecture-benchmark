@@ -1,0 +1,9 @@
+name: small_oneshot
+provider:
+  model: ${OPENROUTER_DEFAULT_MODEL}
+agents:
+  mode: oneshot
+rag:
+  enabled: false
+eval:
+  runs: configs/eval/runs.yaml

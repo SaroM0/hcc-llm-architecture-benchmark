@@ -1,0 +1,18 @@
+nodes:
+  - router
+  - retriever
+  - clinician_a
+  - clinician_b
+  - clinician_c
+  - clinician_d
+  - synthesizer
+routing:
+  start: router
+  edges:
+    router: [retriever]
+    retriever: [clinician_a, clinician_b, clinician_c, clinician_d]
+    clinician_a: [synthesizer]
+    clinician_b: [synthesizer]
+    clinician_c: [synthesizer]
+    clinician_d: [synthesizer]
+    synthesizer: [end]

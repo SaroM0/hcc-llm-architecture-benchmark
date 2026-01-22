@@ -1,0 +1,23 @@
+paths:
+  data_raw: data/raw
+  data_processed: data/processed
+  indexes: data/indexes
+  runs: runs
+
+provider:
+  name: openrouter
+  config: configs/providers/openrouter.yaml
+
+rag:
+  chroma: configs/rag/chroma.yaml
+  chunking: configs/rag/chunking.yaml
+  retrieval: configs/rag/retrieval.yaml
+
+agents:
+  graph: configs/agents/graph.yaml
+  prompts: configs/agents/prompts.yaml
+
+eval:
+  datasets: configs/eval/datasets.yaml
+  metrics: configs/eval/metrics.yaml
+  runs: configs/eval/runs.yaml
