@@ -1,0 +1,14 @@
+id: small_consensus
+arm: A3
+model_roles:
+  consensus: default_large
+model_keys:
+  - default_large
+consensus:
+  num_doctors: 4
+  max_rounds: 3
+  consensus_threshold: 0.75
+llm_params:
+  temperature: 0.3
+  max_tokens: 1024
+output_schema: null
