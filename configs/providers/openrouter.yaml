@@ -6,23 +6,59 @@ api:
   headers: {}
 
 models:
-  default_large:
-    id: ${OPENROUTER_DEFAULT_MODEL}
+  gpt52:
+    id: openai/gpt-5.2
     class: large
+    defaults:
+      temperature: 0.2
+      max_tokens: 2048
+  gemini3pro:
+    id: google/gemini-3-pro-preview
+    class: large
+    defaults:
+      temperature: 0.2
+      max_tokens: 2048
+  mistral_large_2512:
+    id: mistralai/mistral-large-2512
+    class: large
+    defaults:
+      temperature: 0.2
+      max_tokens: 2048
+  glm47:
+    id: z-ai/glm-4.7
+    class: large
+    defaults:
+      temperature: 0.2
+      max_tokens: 2048
+  kimi_k2_thinking:
+    id: moonshotai/kimi-k2-thinking
+    class: large
+    defaults:
+      temperature: 0.2
+      max_tokens: 2048
+  nemotron_3_nano:
+    id: nvidia/nemotron-3-nano-30b-a3b
+    class: small
+    defaults:
+      temperature: 0.2
+      max_tokens: 2048
+  gpt_oss_20b:
+    id: openai/gpt-oss-20b
+    class: small
     defaults:
       temperature: 0.2
       max_tokens: 2048
 
 groups:
-  large: [default_large]
-  small: []
+  large: [gpt52, gemini3pro, mistral_large_2512, glm47, kimi_k2_thinking]
+  small: [nemotron_3_nano, gpt_oss_20b]
 
 roles:
-  oneshot: default_large
-  router: default_large
-  clinician_a: default_large
-  clinician_b: default_large
-  clinician_c: default_large
-  clinician_d: default_large
-  synthesizer: default_large
-  judge: default_large
+  oneshot: gpt_oss_20b
+  router: gpt52
+  clinician_a: nemotron_3_nano
+  clinician_b: gpt_oss_20b
+  clinician_c: nemotron_3_nano
+  clinician_d: gpt_oss_20b
+  synthesizer: gpt52
+  judge: gpt52

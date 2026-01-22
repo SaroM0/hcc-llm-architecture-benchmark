@@ -17,6 +17,7 @@ class LLMCallEvent:
     latency_ms: float | None = None
     usage: Mapping[str, Any] = field(default_factory=dict)
     cost_usd: float | None = None
+    error: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -29,4 +30,5 @@ class LLMCallEvent:
             "latency_ms": self.latency_ms,
             "usage": dict(self.usage),
             "cost_usd": self.cost_usd,
+            "error": self.error,
         }
