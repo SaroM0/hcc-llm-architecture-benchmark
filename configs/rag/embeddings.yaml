@@ -1,0 +1,8 @@
+provider: openrouter
+model: ${OPENROUTER_EMBEDDINGS_MODEL}
+batch_size: 64
+
+openrouter:
+  base_url: ${OPENROUTER_BASE_URL}
+  api_key: ${OPENROUTER_API_KEY}
+  timeout_s: 60

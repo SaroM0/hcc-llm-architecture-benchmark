@@ -12,6 +12,7 @@ rag:
   chroma: configs/rag/chroma.yaml
   chunking: configs/rag/chunking.yaml
   retrieval: configs/rag/retrieval.yaml
+  embeddings: configs/rag/embeddings.yaml
 
 agents:
   graph: configs/agents/graph.yaml
