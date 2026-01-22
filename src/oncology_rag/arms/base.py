@@ -6,13 +6,13 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from oncology_rag.common.types import Prediction, QAItem, RunContext
-from oncology_rag.observability.events import LLMCallEvent
+from oncology_rag.observability.events import Event
 
 
 @dataclass(frozen=True)
 class ArmOutput:
     prediction: Prediction
-    events: list[LLMCallEvent]
+    events: list[Event]
 
 
 class Arm(Protocol):

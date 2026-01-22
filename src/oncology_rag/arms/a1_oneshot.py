@@ -70,6 +70,7 @@ class A1OneShot:
             answer_text=response_text,
             structured=None,
             citations=[],
+            evidence_used=[],
             used_models=[
                 UsedModel(
                     role="oneshot",

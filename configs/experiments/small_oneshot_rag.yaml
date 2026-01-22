@@ -1,0 +1,17 @@
+id: small_oneshot_rag
+arm: A2
+model_roles:
+  oneshot_rag: gpt_oss_20b
+model_keys:
+  - gpt_oss_20b
+retrieval:
+  top_k: 4
+  filters: {}
+embeddings_config: configs/rag/embeddings.yaml
+chroma_config: configs/rag/chroma.yaml
+retrieval_config: configs/rag/retrieval.yaml
+llm_params:
+  temperature: 0.2
+  max_tokens: 512
+output_schema: null
+rag: true

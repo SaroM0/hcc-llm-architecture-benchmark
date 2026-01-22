@@ -6,7 +6,7 @@ This module hides the client mode (persistent or HTTP) behind a single config.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Mapping, MutableMapping
+from typing import Any, Mapping, MutableMapping, Sequence
 
 
 @dataclass(frozen=True)
@@ -104,3 +104,33 @@ class ChromaStore:
     @property
     def config(self) -> MutableMapping[str, Any]:
         return dict(self._config)
+
+    def upsert(
+        self,
+        *,
+        ids: Sequence[str],
+        embeddings: Sequence[Sequence[float]],
+        documents: Sequence[str] | None = None,
+        metadatas: Sequence[Mapping[str, Any]] | None = None,
+    ) -> None:
+        if not ids:
+            return
+        self._collection.upsert(
+            ids=list(ids),
+            embeddings=[list(vec) for vec in embeddings],
+            documents=list(documents) if documents is not None else None,
+            metadatas=[dict(meta) for meta in metadatas] if metadatas is not None else None,
+        )
+
+    def query(
+        self,
+        *,
+        embedding: Sequence[float],
+        top_k: int,
+        filters: Mapping[str, Any] | None = None,
+    ) -> Mapping[str, Any]:
+        return self._collection.query(
+            query_embeddings=[list(embedding)],
+            n_results=int(top_k),
+            where=dict(filters) if filters else None,
+        )

@@ -55,6 +55,7 @@ groups:
 
 roles:
   oneshot: gpt_oss_20b
+  oneshot_rag: gpt_oss_20b
   router: gpt52
   clinician_a: nemotron_3_nano
   clinician_b: gpt_oss_20b

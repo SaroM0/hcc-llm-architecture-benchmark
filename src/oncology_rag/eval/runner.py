@@ -11,10 +11,14 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from oncology_rag.arms.a1_oneshot import A1OneShot
+from oncology_rag.arms.a2_oneshot_rag import A2OneShotRag
 from oncology_rag.arms.base import Arm, ArmOutput
 from oncology_rag.common.types import QAItem, RunContext
 from oncology_rag.llm.openrouter_client import OpenRouterClient, OpenRouterConfig
 from oncology_rag.llm.router import ModelRouter
+from oncology_rag.retrieval.embeddings import build_embedding_model
+from oncology_rag.retrieval.retriever import Retriever
+from oncology_rag.retrieval.vectorstores.chroma_store import ChromaStore
 
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)\}")
@@ -55,9 +59,27 @@ def _make_run_id(prefix: str) -> str:
     return f"{timestamp}_{prefix}"
 
 
-def _resolve_arm(arm_id: str, llm_router: ModelRouter, client: OpenRouterClient) -> Arm:
+def _resolve_arm(
+    arm_id: str,
+    *,
+    llm_router: ModelRouter,
+    client: OpenRouterClient,
+    retriever: Retriever | None = None,
+    top_k: int | None = None,
+    filters: Mapping[str, Any] | None = None,
+) -> Arm:
     if arm_id == "A1":
         return A1OneShot(llm_router=llm_router, client=client)
+    if arm_id == "A2":
+        if retriever is None or top_k is None:
+            raise ValueError("A2 requires a retriever and top_k")
+        return A2OneShotRag(
+            llm_router=llm_router,
+            client=client,
+            retriever=retriever,
+            top_k=top_k,
+            filters=filters,
+        )
     raise ValueError(f"Unsupported arm: {arm_id}")
 
 
@@ -80,7 +102,35 @@ def run_experiment(
 
     llm_router = ModelRouter(provider_cfg)
     client = OpenRouterClient(OpenRouterConfig.from_mapping(provider_cfg))
-    arm = _resolve_arm(str(experiment.get("arm", "A1")), llm_router, client)
+
+    arm_id = str(experiment.get("arm", "A1"))
+    retriever = None
+    retrieval_cfg = experiment.get("retrieval", {}) or {}
+    top_k = retrieval_cfg.get("top_k")
+    filters = retrieval_cfg.get("filters", {}) or {}
+    if arm_id == "A2":
+        embeddings_cfg_path = Path(
+            experiment.get("embeddings_config", "configs/rag/embeddings.yaml")
+        )
+        chroma_cfg_path = Path(experiment.get("chroma_config", "configs/rag/chroma.yaml"))
+        embeddings_cfg = _load_yaml(embeddings_cfg_path)
+        chroma_cfg = _load_yaml(chroma_cfg_path)
+        embedding_model = build_embedding_model(embeddings_cfg)
+        store = ChromaStore(chroma_cfg)
+        retriever = Retriever(embedding_model=embedding_model, store=store)
+        if top_k is None:
+            retrieval_defaults = _load_yaml(
+                Path(experiment.get("retrieval_config", "configs/rag/retrieval.yaml"))
+            )
+            top_k = int(retrieval_defaults.get("top_k", 5))
+    arm = _resolve_arm(
+        arm_id,
+        llm_router=llm_router,
+        client=client,
+        retriever=retriever,
+        top_k=top_k,
+        filters=filters,
+    )
 
     model_keys = list(experiment.get("model_keys", []) or [])
     model_group = experiment.get("model_group")
@@ -125,6 +175,7 @@ def run_experiment(
         "model_roles": role_overrides,
         "model_keys": model_keys,
         "model_group": model_group,
+        "retrieval": retrieval_cfg,
         "dataset_path": str(dataset_path),
     }
     (run_dir / "manifest.json").write_text(

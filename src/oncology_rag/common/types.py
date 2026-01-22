@@ -34,7 +34,8 @@ class Prediction:
     arm: str
     answer_text: str
     structured: Mapping[str, Any] | None = None
-    citations: list[EvidenceRef] = field(default_factory=list)
+    citations: list[str] = field(default_factory=list)
+    evidence_used: list[EvidenceRef] = field(default_factory=list)
     used_models: list[UsedModel] = field(default_factory=list)
     debug: Mapping[str, Any] = field(default_factory=dict)
 
