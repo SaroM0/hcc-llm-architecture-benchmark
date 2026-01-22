@@ -5,9 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping
 
-
-def _read_template(path: Path) -> str:
-    return path.read_text(encoding="utf-8").strip()
+from oncology_rag.prompts.xml_loader import load_prompt
 
 
 def build_oneshot(
@@ -19,8 +17,9 @@ def build_oneshot(
 ) -> list[dict[str, str]]:
     """Build a oneshot prompt using shared templates."""
     templates_path = templates_dir or Path(__file__).parent / "templates"
-    system_template = _read_template(templates_path / "system.md")
-    rag_contract = _read_template(templates_path / "rag_contract.md")
+    prompts_path = templates_path / "prompts.xml"
+    system_template = load_prompt(prompts_path, "system")
+    rag_contract = load_prompt(prompts_path, "rag_contract")
     system_parts = [system_template, rag_contract]
     if safety_policy:
         system_parts.append(safety_policy)
@@ -43,8 +42,9 @@ def build_oneshot_rag(
 ) -> list[dict[str, str]]:
     """Build a oneshot RAG prompt with injected evidence."""
     templates_path = templates_dir or Path(__file__).parent / "templates"
-    system_template = _read_template(templates_path / "system.md")
-    rag_contract = _read_template(templates_path / "rag_contract.md")
+    prompts_path = templates_path / "prompts.xml"
+    system_template = load_prompt(prompts_path, "system")
+    rag_contract = load_prompt(prompts_path, "rag_contract")
     system_parts = [system_template, rag_contract]
     if safety_policy:
         system_parts.append(safety_policy)

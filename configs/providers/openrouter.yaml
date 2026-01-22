@@ -1,11 +1,19 @@
 api:
   base_url: ${OPENROUTER_BASE_URL}
   api_key: ${OPENROUTER_API_KEY}
-  timeout_s: 60
+  timeout_s: 120
   retries: 3
   headers: {}
 
+# =============================================================================
+# MODEL DEFINITIONS
+# =============================================================================
+# Large models: High-capacity state-of-the-art models (upper-bound reference)
+# Small models: Resource-efficient models (deployable/cost-constrained)
+# =============================================================================
+
 models:
+  # --- LARGE MODELS (5) ---
   gpt52:
     id: openai/gpt-5.2
     class: large
@@ -30,12 +38,14 @@ models:
     defaults:
       temperature: 0.2
       max_tokens: 2048
-  kimi_k2_thinking:
-    id: moonshotai/kimi-k2-thinking
+  claude_opus_4:
+    id: anthropic/claude-opus-4
     class: large
     defaults:
       temperature: 0.2
       max_tokens: 2048
+
+  # --- SMALL MODELS (5) ---
   nemotron_3_nano:
     id: nvidia/nemotron-3-nano-30b-a3b
     class: small
@@ -48,18 +58,52 @@ models:
     defaults:
       temperature: 0.2
       max_tokens: 2048
+  llama_3_8b:
+    id: meta-llama/llama-3-8b-instruct
+    class: small
+    defaults:
+      temperature: 0.2
+      max_tokens: 2048
+  mistral_7b:
+    id: mistralai/mistral-7b-instruct
+    class: small
+    defaults:
+      temperature: 0.2
+      max_tokens: 2048
+  phi_3_mini:
+    id: microsoft/phi-3-mini-128k-instruct
+    class: small
+    defaults:
+      temperature: 0.2
+      max_tokens: 2048
 
+# =============================================================================
+# MODEL GROUPS FOR EXPERIMENTS
+# =============================================================================
 groups:
-  large: [gpt52, gemini3pro, mistral_large_2512, glm47, kimi_k2_thinking]
-  small: [nemotron_3_nano, gpt_oss_20b]
+  large: [gpt52, gemini3pro, mistral_large_2512, glm47, claude_opus_4]
+  small: [nemotron_3_nano, gpt_oss_20b, llama_3_8b, mistral_7b, phi_3_mini]
+  all: [gpt52, gemini3pro, mistral_large_2512, glm47, claude_opus_4, nemotron_3_nano, gpt_oss_20b, llama_3_8b, mistral_7b, phi_3_mini]
 
+# =============================================================================
+# ROLE DEFAULTS
+# =============================================================================
 roles:
+  # Single-shot arms
   oneshot: gpt_oss_20b
   oneshot_rag: gpt_oss_20b
+
+  # Multi-agent consensus arms
+  consensus: gpt_oss_20b
+  consensus_rag: gpt_oss_20b
+
+  # Legacy agentic roles
   router: gpt52
   clinician_a: nemotron_3_nano
   clinician_b: gpt_oss_20b
   clinician_c: nemotron_3_nano
   clinician_d: gpt_oss_20b
   synthesizer: gpt52
+
+  # Evaluation
   judge: gpt52

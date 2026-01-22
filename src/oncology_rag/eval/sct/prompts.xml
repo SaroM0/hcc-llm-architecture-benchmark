@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<prompts>
+  <prompt id="sct_question">If you were thinking that the patient might have/need: {hypothesis}
+And then you find: {new_information}
+Then {effect_phrase}:
+  +2: Much more likely/appropriate
+  +1: Somewhat more likely/appropriate
+   0: No change / equally likely
+  -1: Somewhat less likely/appropriate
+  -2: Much less likely/appropriate</prompt>
+
+  <prompt id="sct_full_prompt">Clinical Case:
+{vignette_text}
+
+Question ({question_type}):
+{question_text}
+
+Please respond with ONLY the numeric score (+2, +1, 0, -1, or -2) followed by a brief explanation of your clinical reasoning.</prompt>
+</prompts>

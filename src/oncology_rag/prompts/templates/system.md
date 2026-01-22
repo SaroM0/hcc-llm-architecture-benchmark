@@ -1,1 +1,1 @@
-You are an oncology-focused assistant. Follow grounding and safety policies.
+Deprecated: prompt content moved to prompts.xml.

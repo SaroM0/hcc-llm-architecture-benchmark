@@ -25,6 +25,10 @@ from oncology_rag.retrieval.vectorstores.chroma_store import ChromaStore
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)\}")
 
+# Dataset format detection
+DATASET_FORMAT_JSONL = "jsonl"
+DATASET_FORMAT_SCT = "sct"
+
 
 def _expand_env(value: Any) -> Any:
     if isinstance(value, str):
@@ -54,6 +58,52 @@ def _load_jsonl(path: Path) -> Iterable[Mapping[str, Any]]:
         if not line:
             continue
         yield json.loads(line)
+
+
+def _detect_dataset_format(path: Path) -> str:
+    """Detect the format of a dataset file."""
+    if path.suffix == ".jsonl":
+        return DATASET_FORMAT_JSONL
+
+    # Try to detect SCT format by reading the file
+    content = path.read_text(encoding="utf-8").strip()
+    if content.startswith("[") or content.startswith("{"):
+        try:
+            data = json.loads(content)
+            # Check if it looks like SCT format
+            if isinstance(data, list) and data:
+                first = data[0]
+                if "vignette" in first and "questions" in first:
+                    return DATASET_FORMAT_SCT
+            elif isinstance(data, dict):
+                if "vignette" in data or "vignettes" in data:
+                    return DATASET_FORMAT_SCT
+        except json.JSONDecodeError:
+            pass
+
+    return DATASET_FORMAT_JSONL
+
+
+def _load_dataset(path: Path, dataset_format: str | None = None) -> Iterable[QAItem]:
+    """Load a dataset file and yield QAItems.
+
+    Supports both JSONL (line-delimited) and SCT JSON formats.
+    """
+    fmt = dataset_format or _detect_dataset_format(path)
+
+    if fmt == DATASET_FORMAT_SCT:
+        # Import SCT loader
+        from oncology_rag.eval.sct.loader import load_sct_as_qa_items
+        yield from load_sct_as_qa_items(path)
+    else:
+        # Standard JSONL format
+        for idx, raw in enumerate(_load_jsonl(path)):
+            yield QAItem(
+                question_id=str(raw.get("question_id", idx)),
+                question=str(raw.get("question", "")),
+                metadata=raw.get("metadata", {}) or {},
+                rubric_id=raw.get("rubric_id"),
+            )
 
 
 def _make_run_id(prefix: str) -> str:
@@ -170,19 +220,19 @@ def run_experiment(
     predictions_path = run_dir / "predictions.jsonl"
     events_path = run_dir / "events.jsonl"
 
+    # Detect dataset format from experiment config or auto-detect
+    dataset_format = experiment.get("dataset_format")
+
     with predictions_path.open("w", encoding="utf-8") as pred_file, events_path.open(
         "w", encoding="utf-8"
     ) as events_file:
-        for idx, raw in enumerate(_load_jsonl(dataset_path)):
-            item = QAItem(
-                question_id=str(raw.get("question_id", idx)),
-                question=str(raw.get("question", "")),
-                metadata=raw.get("metadata", {}) or {},
-                rubric_id=raw.get("rubric_id"),
-            )
+        for item in _load_dataset(dataset_path, dataset_format):
             for model_key in model_keys:
                 overrides = dict(role_overrides)
                 overrides["oneshot"] = model_key
+                # Also set consensus roles for A3/A4
+                overrides["consensus"] = model_key
+                overrides["consensus_rag"] = model_key
                 context = RunContext(
                     run_id=run_id,
                     experiment_id=str(experiment.get("id", "run")),

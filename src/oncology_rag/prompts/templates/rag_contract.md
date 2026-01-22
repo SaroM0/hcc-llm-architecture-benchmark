@@ -1,3 +1,1 @@
-- Use only provided evidence.
-- If evidence is insufficient, say so clearly.
-- Do not provide medical advice or treatment recommendations.
+Deprecated: prompt content moved to prompts.xml.
