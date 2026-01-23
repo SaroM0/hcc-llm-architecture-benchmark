@@ -21,6 +21,7 @@ from oncology_rag.llm.router import ModelRouter
 from oncology_rag.retrieval.embeddings import build_embedding_model
 from oncology_rag.retrieval.retriever import Retriever
 from oncology_rag.retrieval.vectorstores.chroma_store import ChromaStore
+from oncology_rag.eval.sct.metrics import extract_score_from_response, NUMERIC_TO_SCORE
 
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)\}")
@@ -241,7 +242,19 @@ def run_experiment(
                     llm_params=llm_params,
                 )
                 output: ArmOutput = arm.run_one(context, item)
-                pred_file.write(json.dumps(asdict(output.prediction)) + "\n")
+
+                # Extract scores for comparison
+                expected_answer = item.metadata.get("expected_answer")
+                predicted_score = extract_score_from_response(output.prediction.answer_text)
+                predicted_answer = NUMERIC_TO_SCORE.get(predicted_score) if predicted_score is not None else None
+
+                # Write prediction with expected/predicted scores
+                pred_dict = asdict(output.prediction)
+                pred_dict["expected_answer"] = expected_answer
+                pred_dict["predicted_answer"] = predicted_answer
+                pred_dict["is_correct"] = (predicted_answer == expected_answer) if predicted_answer and expected_answer else None
+                pred_file.write(json.dumps(pred_dict) + "\n")
+
                 for event in output.events:
                     events_file.write(json.dumps(event.to_dict()) + "\n")
 

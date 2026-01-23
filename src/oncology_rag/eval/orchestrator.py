@@ -22,7 +22,12 @@ from oncology_rag.eval.runner import (
     _resolve_arm,
     _make_run_id,
 )
-from oncology_rag.eval.sct.metrics import SCTScorer, calculate_sct_metrics
+from oncology_rag.eval.sct.metrics import (
+    SCTScorer,
+    calculate_sct_metrics,
+    extract_score_from_response,
+    NUMERIC_TO_SCORE,
+)
 from oncology_rag.arms.base import ArmOutput
 from oncology_rag.common.types import RunContext
 from oncology_rag.llm.openrouter_client import OpenRouterClient, OpenRouterConfig
@@ -115,12 +120,14 @@ class ExperimentOrchestrator:
         runs_dir: Path,
         embeddings_config_path: Path | None = None,
         chroma_config_path: Path | None = None,
+        limit: int | None = None,
     ) -> None:
         self._provider_config_path = provider_config_path
         self._dataset_path = dataset_path
         self._runs_dir = runs_dir
         self._embeddings_config_path = embeddings_config_path
         self._chroma_config_path = chroma_config_path
+        self._limit = limit
 
         # Load configs
         self._provider_config = _load_yaml(provider_config_path)
@@ -193,8 +200,9 @@ class ExperimentOrchestrator:
         predictions_path = run_dir / "predictions.jsonl"
         events_path = run_dir / "events.jsonl"
 
-        # Load dataset
-        items = list(_load_dataset(self._dataset_path))
+        # Load dataset (with optional limit)
+        all_items = list(_load_dataset(self._dataset_path))
+        items = all_items[: self._limit] if self._limit else all_items
 
         # Run experiment
         started = time.monotonic()
@@ -222,8 +230,18 @@ class ExperimentOrchestrator:
 
                 output: ArmOutput = arm.run_one(context, item)
 
-                # Write prediction
+                # Extract scores for comparison
+                expected_answer = item.metadata.get("expected_answer")
+                predicted_score = extract_score_from_response(output.prediction.answer_text)
+
+                # Convert to display format
+                predicted_answer = NUMERIC_TO_SCORE.get(predicted_score) if predicted_score is not None else None
+
+                # Write prediction with expected/predicted scores
                 pred_dict = asdict(output.prediction)
+                pred_dict["expected_answer"] = expected_answer
+                pred_dict["predicted_answer"] = predicted_answer
+                pred_dict["is_correct"] = (predicted_answer == expected_answer) if predicted_answer and expected_answer else None
                 pred_file.write(json.dumps(pred_dict) + "\n")
 
                 # Write events
@@ -231,11 +249,10 @@ class ExperimentOrchestrator:
                     events_file.write(json.dumps(event.to_dict()) + "\n")
 
                 # Score for SCT metrics
-                expected = item.metadata.get("expected_answer")
                 scorer.score_item(
                     item_id=item.question_id,
                     response=output.prediction.answer_text,
-                    expected_answer=expected,
+                    expected_answer=expected_answer,
                     metadata=item.metadata,
                 )
 
@@ -400,6 +417,7 @@ def run_full_matrix(
     chroma_config_path: Path | None = None,
     arms: list[str] | None = None,
     model_groups: list[str] | None = None,
+    limit: int | None = None,
 ) -> list[ExperimentResult]:
     """Convenience function to run the full experimental matrix.
 
@@ -411,6 +429,7 @@ def run_full_matrix(
         chroma_config_path: Path to ChromaDB config (for RAG).
         arms: List of arms to run (default: all).
         model_groups: List of model groups to run (default: all).
+        limit: Optional limit on number of items to evaluate.
 
     Returns:
         List of ExperimentResult for all configurations.
@@ -421,6 +440,7 @@ def run_full_matrix(
         runs_dir=runs_dir,
         embeddings_config_path=embeddings_config_path,
         chroma_config_path=chroma_config_path,
+        limit=limit,
     )
 
     config = MatrixConfig()

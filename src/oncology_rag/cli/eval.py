@@ -79,6 +79,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Experiment ID to resume from (e.g., A1_gpt52).",
     )
+    matrix.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Limit number of items to evaluate (for testing).",
+    )
 
     # Legacy support: if no subcommand, treat as single
     parser.add_argument(
@@ -135,6 +141,7 @@ def main() -> None:
             chroma_config_path=Path(args.chroma_config),
             arms=args.arms,
             model_groups=args.model_groups,
+            limit=args.limit,
         )
     else:
         parser.print_help()
