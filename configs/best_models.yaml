@@ -1,0 +1,48 @@
+# =============================================================================
+# BEST PERFORMING MODELS (A1 Oneshot Evaluation)
+# =============================================================================
+# Based on evaluation run: 2026-01-24
+# Dataset: SCT HCC items (88 validated items)
+# Metric: Exact accuracy
+# =============================================================================
+
+best_large:
+  model_key: gpt52
+  model_id: openai/gpt-5.2
+  accuracy: 0.75
+  partial_accuracy: 0.9205
+  latency_seconds: 436.38
+
+best_small:
+  model_key: qwen3_vl_30b
+  model_id: qwen/qwen3-vl-30b-a3b-thinking
+  accuracy: 0.7273
+  partial_accuracy: 0.8864
+  latency_seconds: 1089.67
+
+# =============================================================================
+# FULL RANKING
+# =============================================================================
+ranking_large:
+  - model_key: gpt52
+    accuracy: 0.75
+  - model_key: claude_opus_4
+    accuracy: 0.7159
+  - model_key: mistral_large_2512
+    accuracy: 0.6136
+  - model_key: gemini3pro
+    accuracy: 0.4091
+  - model_key: glm47
+    accuracy: 0.2273
+
+ranking_small:
+  - model_key: qwen3_vl_30b
+    accuracy: 0.7273
+  - model_key: gemma3_27b
+    accuracy: 0.6818
+  - model_key: ministral_14b
+    accuracy: 0.6364
+  - model_key: gpt_oss_20b
+    accuracy: 0.6136
+  - model_key: nemotron_3_nano
+    accuracy: 0.5682

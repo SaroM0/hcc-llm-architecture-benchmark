@@ -46,6 +46,24 @@ models:
       max_tokens: 2048
 
   # --- SMALL MODELS (5) ---
+  qwen3_vl_30b:
+    id: qwen/qwen3-vl-30b-a3b-thinking
+    class: small
+    defaults:
+      temperature: 0.2
+      max_tokens: 2048
+  gemma3_27b:
+    id: google/gemma-3-27b-it
+    class: small
+    defaults:
+      temperature: 0.2
+      max_tokens: 2048
+  ministral_14b:
+    id: mistralai/ministral-14b-2512
+    class: small
+    defaults:
+      temperature: 0.2
+      max_tokens: 2048
   nemotron_3_nano:
     id: nvidia/nemotron-3-nano-30b-a3b
     class: small
@@ -58,52 +76,33 @@ models:
     defaults:
       temperature: 0.2
       max_tokens: 2048
-  llama_3_8b:
-    id: meta-llama/llama-3-8b-instruct
-    class: small
-    defaults:
-      temperature: 0.2
-      max_tokens: 2048
-  mistral_7b:
-    id: mistralai/mistral-7b-instruct
-    class: small
-    defaults:
-      temperature: 0.2
-      max_tokens: 2048
-  phi_3_mini:
-    id: microsoft/phi-3-mini-128k-instruct
-    class: small
-    defaults:
-      temperature: 0.2
-      max_tokens: 2048
 
 # =============================================================================
 # MODEL GROUPS FOR EXPERIMENTS
 # =============================================================================
 groups:
   large: [gpt52, gemini3pro, mistral_large_2512, glm47, claude_opus_4]
-  small: [nemotron_3_nano, gpt_oss_20b, llama_3_8b, mistral_7b, phi_3_mini]
-  all: [gpt52, gemini3pro, mistral_large_2512, glm47, claude_opus_4, nemotron_3_nano, gpt_oss_20b, llama_3_8b, mistral_7b, phi_3_mini]
+  small: [qwen3_vl_30b, gemma3_27b, ministral_14b, nemotron_3_nano, gpt_oss_20b]
+  all: [gpt52, gemini3pro, mistral_large_2512, glm47, claude_opus_4, qwen3_vl_30b, gemma3_27b, ministral_14b, nemotron_3_nano, gpt_oss_20b]
+  # Best performing models from each class
+  best_large: [gpt52]
+  best_small: [qwen3_vl_30b]
 
 # =============================================================================
 # ROLE DEFAULTS
 # =============================================================================
 roles:
-  # Single-shot arms
-  oneshot: gpt_oss_20b
-  oneshot_rag: gpt_oss_20b
+  # A1: Oneshot (no RAG)
+  oneshot: qwen3_vl_30b
 
-  # Multi-agent consensus arms
-  consensus: gpt_oss_20b
-  consensus_rag: gpt_oss_20b
+  # A2: Oneshot RAG (generic)
+  oneshot_rag: qwen3_vl_30b
 
-  # Legacy agentic roles
-  router: gpt52
-  clinician_a: nemotron_3_nano
-  clinician_b: gpt_oss_20b
-  clinician_c: nemotron_3_nano
-  clinician_d: gpt_oss_20b
-  synthesizer: gpt52
+  # A3: Multi-agent Consensus RAG for large models
+  consensus_large: gpt52
+
+  # A4: Multi-agent Consensus RAG for small models
+  consensus_small: qwen3_vl_30b
 
   # Evaluation
   judge: gpt52

@@ -182,7 +182,8 @@ class ExperimentOrchestrator:
         retriever = None
         top_k = matrix_config.retrieval_config.get("top_k", 5)
         filters = matrix_config.retrieval_config.get("filters", {})
-        if config.arm_id in ("A2", "A4"):
+        # A2, A3, A4 all use RAG now
+        if config.arm_id in ("A2", "A3", "A4"):
             retriever = self._ensure_retriever()
 
         # Resolve arm
@@ -193,7 +194,6 @@ class ExperimentOrchestrator:
             retriever=retriever,
             top_k=top_k,
             filters=filters,
-            consensus_config=matrix_config.consensus_config,
         )
 
         # Prepare output files

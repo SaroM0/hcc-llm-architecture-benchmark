@@ -1,5 +1,5 @@
-"""A4 Multi-Agent Consensus with RAG system using LangGraph."""
+"""A4 Multi-Agent Consensus RAG arm for small models."""
 
-from oncology_rag.arms.a4_consensus_rag.arm import A4ConsensusRag
+from oncology_rag.arms.a4_consensus_rag.arm import A4ConsensusRagSmall
 
-__all__ = ["A4ConsensusRag"]
+__all__ = ["A4ConsensusRagSmall"]

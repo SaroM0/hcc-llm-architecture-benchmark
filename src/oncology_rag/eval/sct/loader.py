@@ -2,12 +2,36 @@
 
 from __future__ import annotations
 
+import csv
 import json
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from oncology_rag.common.types import QAItem
+from oncology_rag.eval.sct.metrics import NUMERIC_TO_SCORE
 from oncology_rag.eval.sct.types import SCTItem, SCTQuestion, SCTVignette
+
+
+def _normalize_expected_answer(value: Any) -> str | None:
+    """Normalize expected answers to the canonical SCT string format."""
+    if value is None:
+        return None
+    if isinstance(value, int):
+        return NUMERIC_TO_SCORE.get(value)
+    if isinstance(value, float):
+        if value.is_integer():
+            return NUMERIC_TO_SCORE.get(int(value))
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if text in {"+2", "+1", "0", "-1", "-2"}:
+            return text
+        try:
+            num = int(text)
+        except ValueError:
+            return None
+        return NUMERIC_TO_SCORE.get(num)
+    return None
 
 
 def _parse_question(raw: Mapping[str, Any], index: int) -> SCTQuestion:
@@ -19,7 +43,7 @@ def _parse_question(raw: Mapping[str, Any], index: int) -> SCTQuestion:
         effect_phrase=str(raw.get("effect_phrase", "this hypothesis becomes")),
         options=list(raw.get("options", ["+2", "+1", "0", "-1", "-2"])),
         author_notes=str(raw.get("author_notes", "")),
-        expected_answer=raw.get("expected_answer"),
+        expected_answer=_normalize_expected_answer(raw.get("expected_answer")),
     )
 
 
@@ -144,3 +168,47 @@ def load_sct_as_qa_items(path: Path) -> list[QAItem]:
     vignettes = load_sct_dataset(path)
     sct_items = expand_vignettes_to_items(vignettes)
     return list(sct_to_qa_items(sct_items))
+
+
+def load_validated_csv_as_qa_items(path: Path) -> list[QAItem]:
+    """Load validated SCT ground truth CSV and convert to QAItems."""
+    items: list[SCTItem] = []
+    with open(path, "r", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for idx, row in enumerate(reader):
+            question_id = (row.get("question_id") or f"q_{idx:05d}").strip()
+            vignette_id = (row.get("vignette_id") or "v_0000").strip()
+            vignette_text = row.get("vignette", "") or ""
+            question_type = (row.get("question_type") or "diagnosis").strip().lower()
+            hypothesis = row.get("hypothesis", "") or ""
+            new_information = row.get("new_information", "") or ""
+            validated_answer = _normalize_expected_answer(row.get("validated_answer"))
+
+            question_index = 0
+            if "_q" in question_id:
+                try:
+                    question_index = int(question_id.split("_q", 1)[1])
+                except ValueError:
+                    question_index = 0
+
+            question = SCTQuestion(
+                question_type=question_type,
+                hypothesis=hypothesis,
+                new_information=new_information,
+                effect_phrase="this hypothesis becomes",
+                expected_answer=validated_answer,
+            )
+
+            items.append(
+                SCTItem(
+                    item_id=question_id,
+                    vignette_id=vignette_id,
+                    domain="HCC",
+                    guideline="validated_ground_truth",
+                    vignette_text=vignette_text,
+                    question=question,
+                    question_index=question_index,
+                )
+            )
+
+    return list(sct_to_qa_items(items))

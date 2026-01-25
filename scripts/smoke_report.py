@@ -23,18 +23,26 @@ def _load_predictions(path: Path) -> list[dict[str, Any]]:
 
 def _latest_runs(runs_dir: Path) -> dict[str, Path]:
     run_map: dict[str, tuple[float, Path]] = {}
-    for manifest_path in runs_dir.glob("experiments/*/manifest.json"):
-        run_dir = manifest_path.parent
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            continue
-        experiment = manifest.get("experiment", {}) or {}
-        exp_id = experiment.get("id") or run_dir.name
-        mtime = run_dir.stat().st_mtime
-        current = run_map.get(exp_id)
-        if current is None or mtime > current[0]:
-            run_map[exp_id] = (mtime, run_dir)
+    # Search in both experiments/ and matrix/ directories
+    search_patterns = ["experiments/*/manifest.json", "matrix/*/manifest.json"]
+    for pattern in search_patterns:
+        for manifest_path in runs_dir.glob(pattern):
+            run_dir = manifest_path.parent
+            try:
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                continue
+            # For matrix runs, use run_id or experiment_id from manifest
+            exp_id = (
+                manifest.get("experiment_id")
+                or manifest.get("run_id")
+                or (manifest.get("experiment", {}) or {}).get("id")
+                or run_dir.name
+            )
+            mtime = run_dir.stat().st_mtime
+            current = run_map.get(exp_id)
+            if current is None or mtime > current[0]:
+                run_map[exp_id] = (mtime, run_dir)
     return {key: value[1] for key, value in run_map.items()}
 
 
@@ -51,12 +59,18 @@ def _build_metrics(
     metrics = calculate_sct_metrics(predictions, expected_key="expected_answer")
     manifest_path = run_dir / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    # Support both experiment-style and matrix-style manifests
     experiment = manifest.get("experiment", {}) or {}
-    arm_id = experiment.get("arm", "unknown")
+    arm_id = manifest.get("arm_id") or experiment.get("arm", "unknown")
+    exp_id = (
+        manifest.get("experiment_id")
+        or manifest.get("run_id")
+        or experiment.get("id", "unknown")
+    )
     return {
         "run_dir": str(run_dir),
         "arm": arm_id,
-        "experiment_id": experiment.get("id", "unknown"),
+        "experiment_id": exp_id,
         "total_items": metrics.total_items,
         "accuracy": metrics.accuracy,
         "partial_accuracy": metrics.partial_accuracy,

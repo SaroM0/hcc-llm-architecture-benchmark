@@ -22,7 +22,7 @@ def build_parser() -> argparse.ArgumentParser:
     single.add_argument(
         "--dataset",
         required=True,
-        help="Path to dataset (JSONL or SCT JSON).",
+        help="Path to dataset (JSONL, SCT JSON, or validated SCT CSV).",
     )
     single.add_argument(
         "--provider-config",
@@ -40,7 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     matrix.add_argument(
         "--dataset",
         required=True,
-        help="Path to SCT dataset JSON.",
+        help="Path to SCT dataset JSON or validated SCT CSV.",
     )
     matrix.add_argument(
         "--provider-config",

@@ -12,8 +12,8 @@ from typing import Any, Iterable, Mapping
 
 from oncology_rag.arms.a1_oneshot import A1OneShot
 from oncology_rag.arms.a2_oneshot_rag import A2OneShotRag
-from oncology_rag.arms.a3_consensus import A3Consensus
-from oncology_rag.arms.a4_consensus_rag import A4ConsensusRag
+from oncology_rag.arms.a3_consensus import A3ConsensusRagLarge
+from oncology_rag.arms.a4_consensus_rag import A4ConsensusRagSmall
 from oncology_rag.arms.base import Arm, ArmOutput
 from oncology_rag.common.types import QAItem, RunContext
 from oncology_rag.llm.openrouter_client import OpenRouterClient, OpenRouterConfig
@@ -29,6 +29,7 @@ _ENV_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)\}")
 # Dataset format detection
 DATASET_FORMAT_JSONL = "jsonl"
 DATASET_FORMAT_SCT = "sct"
+DATASET_FORMAT_SCT_VALIDATED_CSV = "sct_validated_csv"
 
 
 def _expand_env(value: Any) -> Any:
@@ -65,6 +66,17 @@ def _detect_dataset_format(path: Path) -> str:
     """Detect the format of a dataset file."""
     if path.suffix == ".jsonl":
         return DATASET_FORMAT_JSONL
+    if path.suffix == ".csv":
+        try:
+            import csv
+            with open(path, "r", encoding="utf-8") as f:
+                reader = csv.reader(f)
+                header = next(reader, [])
+            header_set = {h.strip() for h in header}
+            if {"question_id", "vignette", "hypothesis", "new_information", "validated_answer"}.issubset(header_set):
+                return DATASET_FORMAT_SCT_VALIDATED_CSV
+        except OSError:
+            pass
 
     # Try to detect SCT format by reading the file
     content = path.read_text(encoding="utf-8").strip()
@@ -96,6 +108,9 @@ def _load_dataset(path: Path, dataset_format: str | None = None) -> Iterable[QAI
         # Import SCT loader
         from oncology_rag.eval.sct.loader import load_sct_as_qa_items
         yield from load_sct_as_qa_items(path)
+    elif fmt == DATASET_FORMAT_SCT_VALIDATED_CSV:
+        from oncology_rag.eval.sct.loader import load_validated_csv_as_qa_items
+        yield from load_validated_csv_as_qa_items(path)
     else:
         # Standard JSONL format
         for idx, raw in enumerate(_load_jsonl(path)):
@@ -120,7 +135,6 @@ def _resolve_arm(
     retriever: Retriever | None = None,
     top_k: int | None = None,
     filters: Mapping[str, Any] | None = None,
-    consensus_config: Mapping[str, Any] | None = None,
 ) -> Arm:
     if arm_id == "A1":
         return A1OneShot(llm_router=llm_router, client=client)
@@ -135,27 +149,24 @@ def _resolve_arm(
             filters=filters,
         )
     if arm_id == "A3":
-        cfg = consensus_config or {}
-        return A3Consensus(
-            llm_router=llm_router,
-            client=client,
-            num_doctors=int(cfg.get("num_doctors", 4)),
-            max_rounds=int(cfg.get("max_rounds", 3)),
-            consensus_threshold=float(cfg.get("consensus_threshold", 0.75)),
-        )
-    if arm_id == "A4":
-        if retriever is None:
-            raise ValueError("A4 requires a retriever")
-        cfg = consensus_config or {}
-        return A4ConsensusRag(
+        if retriever is None or top_k is None:
+            raise ValueError("A3 requires a retriever and top_k")
+        return A3ConsensusRagLarge(
             llm_router=llm_router,
             client=client,
             retriever=retriever,
-            top_k=int(top_k or cfg.get("top_k", 5)),
+            top_k=top_k,
             filters=filters,
-            num_doctors=int(cfg.get("num_doctors", 4)),
-            max_rounds=int(cfg.get("max_rounds", 3)),
-            consensus_threshold=float(cfg.get("consensus_threshold", 0.75)),
+        )
+    if arm_id == "A4":
+        if retriever is None or top_k is None:
+            raise ValueError("A4 requires a retriever and top_k")
+        return A4ConsensusRagSmall(
+            llm_router=llm_router,
+            client=client,
+            retriever=retriever,
+            top_k=top_k,
+            filters=filters,
         )
     raise ValueError(f"Unsupported arm: {arm_id}")
 
@@ -185,8 +196,8 @@ def run_experiment(
     retrieval_cfg = experiment.get("retrieval", {}) or {}
     top_k = retrieval_cfg.get("top_k")
     filters = retrieval_cfg.get("filters", {}) or {}
-    consensus_cfg = experiment.get("consensus", {}) or {}
-    if arm_id in ("A2", "A4"):
+    # A2, A3, A4 all use RAG now
+    if arm_id in ("A2", "A3", "A4"):
         embeddings_cfg_path = Path(
             experiment.get("embeddings_config", "configs/rag/embeddings.yaml")
         )
@@ -208,7 +219,6 @@ def run_experiment(
         retriever=retriever,
         top_k=top_k,
         filters=filters,
-        consensus_config=consensus_cfg,
     )
 
     model_keys = list(experiment.get("model_keys", []) or [])
@@ -231,9 +241,9 @@ def run_experiment(
             for model_key in model_keys:
                 overrides = dict(role_overrides)
                 overrides["oneshot"] = model_key
-                # Also set consensus roles for A3/A4
-                overrides["consensus"] = model_key
-                overrides["consensus_rag"] = model_key
+                overrides["oneshot_rag"] = model_key
+                overrides["consensus_large"] = model_key
+                overrides["consensus_small"] = model_key
                 context = RunContext(
                     run_id=run_id,
                     experiment_id=str(experiment.get("id", "run")),
