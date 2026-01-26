@@ -1,0 +1,21 @@
+id: A4
+arm: A4
+model_roles:
+  consensus_small: qwen3_vl_30b
+model_keys:
+  - qwen3_vl_30b
+consensus:
+  num_doctors: 4
+  max_rounds: 3
+  consensus_threshold: 0.75
+retrieval:
+  top_k: 5
+  filters: {}
+embeddings_config: configs/rag/embeddings.yaml
+chroma_config: configs/rag/chroma.yaml
+retrieval_config: configs/rag/retrieval.yaml
+llm_params:
+  temperature: 0.3
+  max_tokens: 1024
+output_schema: null
+rag: true

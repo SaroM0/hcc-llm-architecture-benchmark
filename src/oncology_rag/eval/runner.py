@@ -22,6 +22,8 @@ from oncology_rag.retrieval.embeddings import build_embedding_model
 from oncology_rag.retrieval.retriever import Retriever
 from oncology_rag.retrieval.vectorstores.chroma_store import ChromaStore
 from oncology_rag.eval.sct.metrics import extract_score_from_response, NUMERIC_TO_SCORE
+from oncology_rag.eval.attempts import AttemptLogger, build_attempt_record
+from oncology_rag.eval.artifacts import write_config_snapshot
 
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)\}")
@@ -183,6 +185,7 @@ def run_experiment(
     run_id = _make_run_id(experiment.get("id", "run"))
     run_dir = runs_dir / "experiments" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
+    results_root = Path("results")
 
     role_overrides = experiment.get("model_roles", {}) or {}
     llm_params = experiment.get("llm_params", {}) or {}
@@ -234,39 +237,60 @@ def run_experiment(
     # Detect dataset format from experiment config or auto-detect
     dataset_format = experiment.get("dataset_format")
 
-    with predictions_path.open("w", encoding="utf-8") as pred_file, events_path.open(
-        "w", encoding="utf-8"
-    ) as events_file:
-        for item in _load_dataset(dataset_path, dataset_format):
-            for model_key in model_keys:
-                overrides = dict(role_overrides)
-                overrides["oneshot"] = model_key
-                overrides["oneshot_rag"] = model_key
-                overrides["consensus_large"] = model_key
-                overrides["consensus_small"] = model_key
-                context = RunContext(
-                    run_id=run_id,
-                    experiment_id=str(experiment.get("id", "run")),
-                    role_overrides=overrides,
-                    output_schema=output_schema,
-                    llm_params=llm_params,
-                )
-                output: ArmOutput = arm.run_one(context, item)
+    attempt_logger = AttemptLogger(results_root)
+    try:
+        with predictions_path.open("w", encoding="utf-8") as pred_file, events_path.open(
+            "w", encoding="utf-8"
+        ) as events_file:
+            for item in _load_dataset(dataset_path, dataset_format):
+                for model_key in model_keys:
+                    overrides = dict(role_overrides)
+                    overrides["oneshot"] = model_key
+                    overrides["oneshot_rag"] = model_key
+                    overrides["consensus_large"] = model_key
+                    overrides["consensus_small"] = model_key
+                    context = RunContext(
+                        run_id=run_id,
+                        experiment_id=str(experiment.get("id", "run")),
+                        role_overrides=overrides,
+                        output_schema=output_schema,
+                        llm_params=llm_params,
+                    )
+                    output: ArmOutput = arm.run_one(context, item)
 
-                # Extract scores for comparison
-                expected_answer = item.metadata.get("expected_answer")
-                predicted_score = extract_score_from_response(output.prediction.answer_text)
-                predicted_answer = NUMERIC_TO_SCORE.get(predicted_score) if predicted_score is not None else None
+                    # Extract scores for comparison
+                    expected_answer = item.metadata.get("expected_answer")
+                    predicted_score = extract_score_from_response(output.prediction.answer_text)
+                    predicted_answer = NUMERIC_TO_SCORE.get(predicted_score) if predicted_score is not None else None
 
-                # Write prediction with expected/predicted scores
-                pred_dict = asdict(output.prediction)
-                pred_dict["expected_answer"] = expected_answer
-                pred_dict["predicted_answer"] = predicted_answer
-                pred_dict["is_correct"] = (predicted_answer == expected_answer) if predicted_answer and expected_answer else None
-                pred_file.write(json.dumps(pred_dict) + "\n")
+                    # Write prediction with expected/predicted scores
+                    pred_dict = asdict(output.prediction)
+                    pred_dict["expected_answer"] = expected_answer
+                    pred_dict["predicted_answer"] = predicted_answer
+                    pred_dict["is_correct"] = (predicted_answer == expected_answer) if predicted_answer and expected_answer else None
+                    pred_file.write(json.dumps(pred_dict) + "\n")
 
-                for event in output.events:
-                    events_file.write(json.dumps(event.to_dict()) + "\n")
+                    for event in output.events:
+                        events_file.write(json.dumps(event.to_dict()) + "\n")
+
+                    model_spec = llm_router.registry.get(model_key)
+                    record = build_attempt_record(
+                        context=context,
+                        item=item,
+                        prediction=output.prediction,
+                        events=output.events,
+                        model_key=model_key,
+                        model_id=model_spec.model_id,
+                        model_class=model_spec.model_class,
+                    )
+                    attempt_logger.write_attempt(
+                        arm_id=arm_id,
+                        run_id=run_id,
+                        model_key=model_key,
+                        record=record,
+                    )
+    finally:
+        attempt_logger.close()
 
     manifest = {
         "run_id": run_id,
@@ -282,4 +306,15 @@ def run_experiment(
     (run_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2), encoding="utf-8"
     )
+    config_snapshot = {
+        "run_id": run_id,
+        "experiment_id": experiment.get("id", "run"),
+        "defaults": _load_yaml(Path("configs/default.yaml")) if Path("configs/default.yaml").exists() else {},
+        "experiment_config": experiment,
+        "provider_config": provider_cfg.get("api", {}),
+        "llm_params": llm_params,
+        "retrieval": retrieval_cfg,
+        "seeds": experiment.get("seeds", {}),
+    }
+    write_config_snapshot(results_root / f"run={run_id}", config_snapshot)
     return run_dir

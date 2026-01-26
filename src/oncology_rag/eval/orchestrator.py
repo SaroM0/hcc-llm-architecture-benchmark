@@ -28,6 +28,8 @@ from oncology_rag.eval.sct.metrics import (
     extract_score_from_response,
     NUMERIC_TO_SCORE,
 )
+from oncology_rag.eval.attempts import AttemptLogger, build_attempt_record
+from oncology_rag.eval.artifacts import write_config_snapshot
 from oncology_rag.arms.base import ArmOutput
 from oncology_rag.common.types import RunContext
 from oncology_rag.llm.openrouter_client import OpenRouterClient, OpenRouterConfig
@@ -63,7 +65,12 @@ class MatrixConfig:
     })
     llm_params: dict[str, Any] = field(default_factory=lambda: {
         "temperature": 0.3,
-        "max_tokens": 1024,
+        "max_tokens": 512,
+        "max_completion_tokens": 512,
+        "provider": {
+            "allow_fallbacks": False,
+            "quantization": "fp16",
+        },
     })
 
 
@@ -174,6 +181,7 @@ class ExperimentOrchestrator:
         run_id = _make_run_id(experiment_id)
         run_dir = self._runs_dir / "matrix" / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
+        results_root = Path("results")
 
         # Get model info
         model_spec = self._llm_router.registry.get(config.model_key)
@@ -208,53 +216,73 @@ class ExperimentOrchestrator:
         started = time.monotonic()
         scorer = SCTScorer()
 
-        with predictions_path.open("w", encoding="utf-8") as pred_file, \
-             events_path.open("w", encoding="utf-8") as events_file:
+        attempt_logger = AttemptLogger(results_root)
+        try:
+            with predictions_path.open("w", encoding="utf-8") as pred_file, \
+                 events_path.open("w", encoding="utf-8") as events_file:
 
-            for item in items:
-                # Build role overrides for this model
-                overrides = {
-                    "oneshot": config.model_key,
-                    "oneshot_rag": config.model_key,
-                    "consensus": config.model_key,
-                    "consensus_rag": config.model_key,
-                }
+                for item in items:
+                    # Build role overrides for this model
+                    overrides = {
+                        "oneshot": config.model_key,
+                        "oneshot_rag": config.model_key,
+                        "consensus": config.model_key,
+                        "consensus_rag": config.model_key,
+                    }
 
-                context = RunContext(
-                    run_id=run_id,
-                    experiment_id=experiment_id,
-                    role_overrides=overrides,
-                    output_schema=None,
-                    llm_params=matrix_config.llm_params,
-                )
+                    context = RunContext(
+                        run_id=run_id,
+                        experiment_id=experiment_id,
+                        role_overrides=overrides,
+                        output_schema=None,
+                        llm_params=matrix_config.llm_params,
+                    )
 
-                output: ArmOutput = arm.run_one(context, item)
+                    output: ArmOutput = arm.run_one(context, item)
 
-                # Extract scores for comparison
-                expected_answer = item.metadata.get("expected_answer")
-                predicted_score = extract_score_from_response(output.prediction.answer_text)
+                    # Extract scores for comparison
+                    expected_answer = item.metadata.get("expected_answer")
+                    predicted_score = extract_score_from_response(output.prediction.answer_text)
 
-                # Convert to display format
-                predicted_answer = NUMERIC_TO_SCORE.get(predicted_score) if predicted_score is not None else None
+                    # Convert to display format
+                    predicted_answer = NUMERIC_TO_SCORE.get(predicted_score) if predicted_score is not None else None
 
-                # Write prediction with expected/predicted scores
-                pred_dict = asdict(output.prediction)
-                pred_dict["expected_answer"] = expected_answer
-                pred_dict["predicted_answer"] = predicted_answer
-                pred_dict["is_correct"] = (predicted_answer == expected_answer) if predicted_answer and expected_answer else None
-                pred_file.write(json.dumps(pred_dict) + "\n")
+                    # Write prediction with expected/predicted scores
+                    pred_dict = asdict(output.prediction)
+                    pred_dict["expected_answer"] = expected_answer
+                    pred_dict["predicted_answer"] = predicted_answer
+                    pred_dict["is_correct"] = (predicted_answer == expected_answer) if predicted_answer and expected_answer else None
+                    pred_file.write(json.dumps(pred_dict) + "\n")
 
-                # Write events
-                for event in output.events:
-                    events_file.write(json.dumps(event.to_dict()) + "\n")
+                    # Write events
+                    for event in output.events:
+                        events_file.write(json.dumps(event.to_dict()) + "\n")
 
-                # Score for SCT metrics
-                scorer.score_item(
-                    item_id=item.question_id,
-                    response=output.prediction.answer_text,
-                    expected_answer=expected_answer,
-                    metadata=item.metadata,
-                )
+                    record = build_attempt_record(
+                        context=context,
+                        item=item,
+                        prediction=output.prediction,
+                        events=output.events,
+                        model_key=config.model_key,
+                        model_id=model_spec.model_id,
+                        model_class=config.model_class,
+                    )
+                    attempt_logger.write_attempt(
+                        arm_id=config.arm_id,
+                        run_id=run_id,
+                        model_key=config.model_key,
+                        record=record,
+                    )
+
+                    # Score for SCT metrics
+                    scorer.score_item(
+                        item_id=item.question_id,
+                        response=output.prediction.answer_text,
+                        expected_answer=expected_answer,
+                        metadata=item.metadata,
+                    )
+        finally:
+            attempt_logger.close()
 
         elapsed = time.monotonic() - started
         metrics = scorer.compute_metrics()
@@ -290,6 +318,20 @@ class ExperimentOrchestrator:
         (run_dir / "manifest.json").write_text(
             json.dumps(manifest, indent=2), encoding="utf-8"
         )
+        config_snapshot = {
+            "run_id": run_id,
+            "experiment_id": experiment_id,
+            "arm_id": config.arm_id,
+            "model_key": config.model_key,
+            "model_class": config.model_class,
+            "defaults": _load_yaml(Path("configs/default.yaml")) if Path("configs/default.yaml").exists() else {},
+            "provider_config": self._provider_config.get("api", {}),
+            "llm_params": matrix_config.llm_params,
+            "retrieval": matrix_config.retrieval_config,
+            "consensus": matrix_config.consensus_config,
+            "seeds": {},
+        }
+        write_config_snapshot(results_root / f"run={run_id}", config_snapshot)
 
         return ExperimentResult(
             arm_id=config.arm_id,

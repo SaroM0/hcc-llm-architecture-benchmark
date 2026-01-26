@@ -7,6 +7,7 @@ from typing import Any, Mapping
 
 from oncology_rag.arms.base import ArmOutput
 from oncology_rag.common.types import Prediction, QAItem, RunContext, UsedModel
+from oncology_rag.common.utils import hash_prompt_messages
 from oncology_rag.llm.openrouter_client import OpenRouterClient
 from oncology_rag.llm.router import ModelRouter
 from oncology_rag.observability.events import LLMCallEvent
@@ -35,6 +36,7 @@ class A1OneShot:
             safety_policy=self._safety_policy,
         )
         llm_params: Mapping[str, Any] = context.llm_params or {}
+        prompt_hash = hash_prompt_messages(messages)
         started = time.monotonic()
         error: str | None = None
         usage: Mapping[str, Any] = {}
@@ -78,6 +80,8 @@ class A1OneShot:
                     model_id=resolution.model.model_id,
                 )
             ],
-            debug={},
+            debug={
+                "prompt_hash": prompt_hash,
+            },
         )
         return ArmOutput(prediction=prediction, events=[event])

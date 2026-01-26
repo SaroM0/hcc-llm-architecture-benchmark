@@ -17,3 +17,7 @@ runs/
 # Editor
 .vscode/
 .idea/
+
+
+reports/
+results/
