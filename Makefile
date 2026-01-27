@@ -4,7 +4,7 @@
 	eval-a1-large eval-a1-small eval-a1-all \
 	eval-a2-large eval-a2-small eval-a2-all \
 	eval-a3-large eval-a3-small eval-a3-all \
-	eval-a4-large eval-a4-small eval-a4-all \
+	eval-a4-large eval-a4-small eval-a4-all eval-a4-qwen \
 	report report-smoke sct-agreement sct-validate clean-runs
 
 # =============================================================================
@@ -73,6 +73,7 @@ help:
 	@echo "  eval-a3-all   Run A3 on validated ground truth (large + small)"
 	@echo "  eval-a4-large Run A4 on validated ground truth (large models)"
 	@echo "  eval-a4-small Run A4 on validated ground truth (small models)"
+	@echo "  eval-a4-qwen  Run A4 on validated ground truth (qwen3_vl_30b only)"
 	@echo "  eval-a4-all   Run A4 on validated ground truth (large + small)"
 	@echo ""
 	@echo "Reports:"
@@ -374,6 +375,14 @@ eval-a4-all:
 		--runs-dir $(RUNS_DIR) \
 		--arms A4 \
 		--model-groups large small
+
+eval-a4-qwen:
+	@echo "Running A4 on validated ground truth (qwen3_vl_30b only)..."
+	$(PYTHON) -m oncology_rag.cli.eval single \
+		--experiment configs/experiments/a4_consensus_small.yaml \
+		--dataset $(DATASET_VALIDATED) \
+		--provider-config $(PROVIDER_CONFIG) \
+		--runs-dir $(RUNS_DIR)
 
 # =============================================================================
 # REPORTS

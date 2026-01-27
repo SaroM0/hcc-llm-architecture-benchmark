@@ -1,9 +1,9 @@
 id: small_consensus_rag
 arm: A4
 model_roles:
-  consensus_rag: gpt_oss_20b
+  consensus_small: qwen3_vl_30b
 model_keys:
-  - gpt_oss_20b
+  - qwen3_vl_30b
 consensus:
   num_doctors: 4
   max_rounds: 3
