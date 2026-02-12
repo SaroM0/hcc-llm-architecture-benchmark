@@ -75,6 +75,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Model groups to run (default: large small).",
     )
     matrix.add_argument(
+        "--models",
+        nargs="+",
+        default=None,
+        help="Specific model keys to run (overrides --model-groups).",
+    )
+    matrix.add_argument(
         "--resume-from",
         default=None,
         help="Experiment ID to resume from (e.g., A1_gpt52).",
@@ -141,6 +147,7 @@ def main() -> None:
             chroma_config_path=Path(args.chroma_config),
             arms=args.arms,
             model_groups=args.model_groups,
+            models=args.models,
             limit=args.limit,
         )
     else:

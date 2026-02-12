@@ -16,6 +16,7 @@ from oncology_rag.arms.a3_consensus_rag import A3ConsensusRagSmall
 from oncology_rag.arms.base import Arm, ArmOutput
 from oncology_rag.common.types import QAItem, RunContext
 from oncology_rag.llm.openrouter_client import OpenRouterClient, OpenRouterConfig
+from oncology_rag.llm.params import resolve_llm_params
 from oncology_rag.llm.router import ModelRouter
 from oncology_rag.retrieval.embeddings import build_embedding_model
 from oncology_rag.retrieval.retriever import Retriever
@@ -180,7 +181,7 @@ def run_experiment(
     results_root = Path("results")
 
     role_overrides = experiment.get("model_roles", {}) or {}
-    llm_params = experiment.get("llm_params", {}) or {}
+    llm_params = resolve_llm_params(experiment.get("llm_params"))
     output_schema = experiment.get("output_schema")
 
     llm_router = ModelRouter(provider_cfg)

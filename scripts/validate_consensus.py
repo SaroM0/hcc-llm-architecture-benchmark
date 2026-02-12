@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from oncology_rag.arms.a3_consensus_rag import A3ConsensusRagSmall
 from oncology_rag.common.types import QAItem, RunContext
+from oncology_rag.llm.params import resolve_llm_params
 from oncology_rag.llm.router import ModelRouter
 from oncology_rag.retrieval.retriever import RetrievalResult
 
@@ -83,12 +84,13 @@ def main() -> int:
         metadata={"expected_answer": "+2"},
     )
 
+    llm_params = resolve_llm_params({"temperature": 0.2})
     context = RunContext(
         run_id="validate_run",
         experiment_id="validate",
         role_overrides={"consensus_small": "test_model"},
         output_schema=None,
-        llm_params={"temperature": 0.2},
+        llm_params=llm_params,
     )
 
     print("Running A3 consensus (mocked LLM)...")

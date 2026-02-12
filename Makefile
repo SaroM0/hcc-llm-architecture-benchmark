@@ -1,6 +1,6 @@
 .PHONY: help install check-env format lint test ingest \
 	validate-consensus \
-	smoke smoke-a1 smoke-a2 smoke-a3 \
+	smoke smoke-a1 smoke-a2 smoke-a3 smoke-models \
 	test-mini test-small test-medium test-full \
 	eval-a1-large eval-a1-small eval-a1-all \
 	eval-a2-large eval-a2-small eval-a2-all \
@@ -51,9 +51,11 @@ help:
 	@echo ""
 	@echo "Smoke Tests (2 items, quick validation):"
 	@echo "  smoke         Run smoke tests for all arms (A1-A3)"
+	@echo "  smoke         Run smoke tests for all arms (A1-A3)"
 	@echo "  smoke-a1      Smoke test for A1 (oneshot)"
 	@echo "  smoke-a2      Smoke test for A2 (consensus large)"
 	@echo "  smoke-a3      Smoke test for A3 (consensus small)"
+	@echo "  smoke-models  Test each model with 1 item per arm (consistency check)"
 	@echo ""
 	@echo "Evaluation Tests (small models only):"
 	@echo "  test-mini     Run with 5 items, 1 small model, all arms"
@@ -176,6 +178,17 @@ smoke-a3:
 		--arms A3 \
 		--model-groups small \
 		--limit 2
+
+smoke-models:
+	@echo "Testing each model with 1 item per arm (A1, A2, A3)..."
+	$(PYTHON) scripts/test_models_consistency.py \
+		--dataset $(DATASET_SMOKE) \
+		--provider-config $(PROVIDER_CONFIG) \
+		--embeddings-config $(EMBEDDINGS_CONFIG) \
+		--chroma-config $(CHROMA_CONFIG) \
+		--runs-dir $(RUNS_DIR)
+	@echo ""
+	@echo "Model-by-model consistency check completed."
 
 # =============================================================================
 # EVALUATION TESTS (progressive scale, small models)
