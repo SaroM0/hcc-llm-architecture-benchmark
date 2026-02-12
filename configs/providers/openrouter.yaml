@@ -95,13 +95,10 @@ roles:
   # A1: Oneshot (no RAG)
   oneshot: qwen3_vl_30b
 
-  # A2: Oneshot RAG (generic)
-  oneshot_rag: qwen3_vl_30b
-
-  # A3: Multi-agent Consensus RAG for large models
+  # A2: Multi-agent Consensus RAG for large models
   consensus_large: gpt52
 
-  # A4: Multi-agent Consensus RAG for small models
+  # A3: Multi-agent Consensus RAG for small models
   consensus_small: qwen3_vl_30b
 
   # Evaluation

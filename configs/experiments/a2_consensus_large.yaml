@@ -1,12 +1,12 @@
-id: A3
-arm: A3
+id: A2
+arm: A2
 model_roles:
   consensus_large: gpt52
 model_keys:
   - gpt52
 consensus:
   num_doctors: 4
-  max_rounds: 3
+  max_rounds: 13
   consensus_threshold: 0.75
 retrieval:
   top_k: 5

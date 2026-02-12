@@ -11,9 +11,8 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from oncology_rag.arms.a1_oneshot import A1OneShot
-from oncology_rag.arms.a2_oneshot_rag import A2OneShotRag
-from oncology_rag.arms.a3_consensus import A3ConsensusRagLarge
-from oncology_rag.arms.a4_consensus_rag import A4ConsensusRagSmall
+from oncology_rag.arms.a2_consensus import A2ConsensusRagLarge
+from oncology_rag.arms.a3_consensus_rag import A3ConsensusRagSmall
 from oncology_rag.arms.base import Arm, ArmOutput
 from oncology_rag.common.types import QAItem, RunContext
 from oncology_rag.llm.openrouter_client import OpenRouterClient, OpenRouterConfig
@@ -137,38 +136,31 @@ def _resolve_arm(
     retriever: Retriever | None = None,
     top_k: int | None = None,
     filters: Mapping[str, Any] | None = None,
+    max_rounds: int | None = None,
 ) -> Arm:
     if arm_id == "A1":
         return A1OneShot(llm_router=llm_router, client=client)
     if arm_id == "A2":
         if retriever is None or top_k is None:
             raise ValueError("A2 requires a retriever and top_k")
-        return A2OneShotRag(
+        return A2ConsensusRagLarge(
             llm_router=llm_router,
             client=client,
             retriever=retriever,
             top_k=top_k,
             filters=filters,
+            max_rounds=max_rounds or 13,
         )
     if arm_id == "A3":
         if retriever is None or top_k is None:
             raise ValueError("A3 requires a retriever and top_k")
-        return A3ConsensusRagLarge(
+        return A3ConsensusRagSmall(
             llm_router=llm_router,
             client=client,
             retriever=retriever,
             top_k=top_k,
             filters=filters,
-        )
-    if arm_id == "A4":
-        if retriever is None or top_k is None:
-            raise ValueError("A4 requires a retriever and top_k")
-        return A4ConsensusRagSmall(
-            llm_router=llm_router,
-            client=client,
-            retriever=retriever,
-            top_k=top_k,
-            filters=filters,
+            max_rounds=max_rounds or 13,
         )
     raise ValueError(f"Unsupported arm: {arm_id}")
 
@@ -199,8 +191,7 @@ def run_experiment(
     retrieval_cfg = experiment.get("retrieval", {}) or {}
     top_k = retrieval_cfg.get("top_k")
     filters = retrieval_cfg.get("filters", {}) or {}
-    # A2, A3, A4 all use RAG now
-    if arm_id in ("A2", "A3", "A4"):
+    if arm_id in ("A2", "A3"):
         embeddings_cfg_path = Path(
             experiment.get("embeddings_config", "configs/rag/embeddings.yaml")
         )
@@ -215,6 +206,8 @@ def run_experiment(
                 Path(experiment.get("retrieval_config", "configs/rag/retrieval.yaml"))
             )
             top_k = int(retrieval_defaults.get("top_k", 5))
+    consensus_cfg = experiment.get("consensus", {}) or {}
+    max_rounds = consensus_cfg.get("max_rounds")
     arm = _resolve_arm(
         arm_id,
         llm_router=llm_router,
@@ -222,6 +215,7 @@ def run_experiment(
         retriever=retriever,
         top_k=top_k,
         filters=filters,
+        max_rounds=max_rounds,
     )
 
     model_keys = list(experiment.get("model_keys", []) or [])
@@ -246,7 +240,6 @@ def run_experiment(
                 for model_key in model_keys:
                     overrides = dict(role_overrides)
                     overrides["oneshot"] = model_key
-                    overrides["oneshot_rag"] = model_key
                     overrides["consensus_large"] = model_key
                     overrides["consensus_small"] = model_key
                     context = RunContext(

@@ -1,5 +1,5 @@
 id: smoke_consensus
-arm: A3
+arm: A2
 model_roles:
   consensus: gpt_oss_20b
 model_keys:

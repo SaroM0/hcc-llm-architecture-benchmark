@@ -66,7 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--arms",
         nargs="+",
         default=None,
-        help="Arms to run (default: A1 A2 A3 A4).",
+        help="Arms to run (default: A1 A2 A3).",
     )
     matrix.add_argument(
         "--model-groups",

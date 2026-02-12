@@ -2,7 +2,7 @@
 
 This module orchestrates the complete experimental design:
 - 10 models (5 large + 5 small)
-- 4 arms (A1, A2, A3, A4)
+- 3 arms (A1, A2, A3)
 - 200 SCT items
 
 Total: 40 model-architecture configurations, 8000 evaluations.
@@ -52,11 +52,11 @@ class ExperimentConfig:
 class MatrixConfig:
     """Configuration for the full experimental matrix."""
 
-    arms: list[str] = field(default_factory=lambda: ["A1", "A2", "A3", "A4"])
+    arms: list[str] = field(default_factory=lambda: ["A1", "A2", "A3"])
     model_groups: list[str] = field(default_factory=lambda: ["large", "small"])
     consensus_config: dict[str, Any] = field(default_factory=lambda: {
         "num_doctors": 4,
-        "max_rounds": 3,
+        "max_rounds": 13,
         "consensus_threshold": 0.75,
     })
     retrieval_config: dict[str, Any] = field(default_factory=lambda: {
@@ -143,7 +143,7 @@ class ExperimentOrchestrator:
             OpenRouterConfig.from_mapping(self._provider_config)
         )
 
-        # Lazy-load retriever (only for A2/A4)
+        # Lazy-load retriever (for A2, A3)
         self._retriever: Retriever | None = None
 
     def _ensure_retriever(self) -> Retriever:
@@ -190,11 +190,10 @@ class ExperimentOrchestrator:
         retriever = None
         top_k = matrix_config.retrieval_config.get("top_k", 5)
         filters = matrix_config.retrieval_config.get("filters", {})
-        # A2, A3, A4 all use RAG now
-        if config.arm_id in ("A2", "A3", "A4"):
+        if config.arm_id in ("A2", "A3"):
             retriever = self._ensure_retriever()
 
-        # Resolve arm
+        max_rounds = matrix_config.consensus_config.get("max_rounds")
         arm = _resolve_arm(
             config.arm_id,
             llm_router=self._llm_router,
@@ -202,6 +201,7 @@ class ExperimentOrchestrator:
             retriever=retriever,
             top_k=top_k,
             filters=filters,
+            max_rounds=max_rounds,
         )
 
         # Prepare output files
@@ -225,9 +225,8 @@ class ExperimentOrchestrator:
                     # Build role overrides for this model
                     overrides = {
                         "oneshot": config.model_key,
-                        "oneshot_rag": config.model_key,
-                        "consensus": config.model_key,
-                        "consensus_rag": config.model_key,
+                        "consensus_large": config.model_key,
+                        "consensus_small": config.model_key,
                     }
 
                     context = RunContext(

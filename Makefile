@@ -1,10 +1,10 @@
 .PHONY: help install check-env format lint test ingest \
-	smoke smoke-a1 smoke-a2 smoke-a3 smoke-a4 \
+	validate-consensus \
+	smoke smoke-a1 smoke-a2 smoke-a3 \
 	test-mini test-small test-medium test-full \
 	eval-a1-large eval-a1-small eval-a1-all \
 	eval-a2-large eval-a2-small eval-a2-all \
 	eval-a3-large eval-a3-small eval-a3-all \
-	eval-a4-large eval-a4-small eval-a4-all eval-a4-qwen \
 	report report-smoke sct-agreement sct-validate clean-runs
 
 # =============================================================================
@@ -20,7 +20,7 @@ endif
 # =============================================================================
 PYTHON := PYTHONPATH=src python3
 DATASET := data/eval/sct_items_hepa_icca.json
-DATASET_SMOKE := data/eval/sct_items_hepa_icca_smoke.json
+DATASET_SMOKE := $(firstword $(wildcard data/eval/sct_items_hepa_icca_smoke.json) data/eval/sct_validated_ground_truth.csv)
 DATASET_VALIDATED := data/eval/sct_validated_ground_truth.csv
 PROVIDER_CONFIG := configs/providers/openrouter.yaml
 EMBEDDINGS_CONFIG := configs/rag/embeddings.yaml
@@ -46,14 +46,14 @@ help:
 	@echo "  format        Format code"
 	@echo "  lint          Run linters"
 	@echo "  test          Run unit tests"
+	@echo "  validate-consensus  Validate A2/A3 consensus (mocked, no API)"
 	@echo "  ingest        Ingest documents into vector store"
 	@echo ""
 	@echo "Smoke Tests (2 items, quick validation):"
-	@echo "  smoke         Run smoke tests for all arms (A1-A4)"
+	@echo "  smoke         Run smoke tests for all arms (A1-A3)"
 	@echo "  smoke-a1      Smoke test for A1 (oneshot)"
-	@echo "  smoke-a2      Smoke test for A2 (oneshot + RAG)"
-	@echo "  smoke-a3      Smoke test for A3 (consensus)"
-	@echo "  smoke-a4      Smoke test for A4 (consensus + RAG)"
+	@echo "  smoke-a2      Smoke test for A2 (consensus large)"
+	@echo "  smoke-a3      Smoke test for A3 (consensus small)"
 	@echo ""
 	@echo "Evaluation Tests (small models only):"
 	@echo "  test-mini     Run with 5 items, 1 small model, all arms"
@@ -71,10 +71,6 @@ help:
 	@echo "  eval-a3-large Run A3 on validated ground truth (large models)"
 	@echo "  eval-a3-small Run A3 on validated ground truth (small models)"
 	@echo "  eval-a3-all   Run A3 on validated ground truth (large + small)"
-	@echo "  eval-a4-large Run A4 on validated ground truth (large models)"
-	@echo "  eval-a4-small Run A4 on validated ground truth (small models)"
-	@echo "  eval-a4-qwen  Run A4 on validated ground truth (qwen3_vl_30b only)"
-	@echo "  eval-a4-all   Run A4 on validated ground truth (large + small)"
 	@echo ""
 	@echo "Reports:"
 	@echo "  report        Generate reports from latest runs"
@@ -132,6 +128,10 @@ test:
 	@echo "Running unit tests..."
 	$(PYTHON) -m pytest tests/ -v
 
+validate-consensus:
+	@echo "Validating A2/A3 consensus (mocked LLM, no API)..."
+	$(PYTHON) scripts/validate_consensus.py
+
 ingest:
 	@echo "Ingesting documents into vector store..."
 	$(PYTHON) -m oncology_rag.cli.ingest --config configs/default.yaml
@@ -139,7 +139,7 @@ ingest:
 # =============================================================================
 # SMOKE TESTS (2 items each, quick validation)
 # =============================================================================
-smoke: smoke-a1 smoke-a2 smoke-a3 smoke-a4
+smoke: smoke-a1 smoke-a2 smoke-a3
 	@echo ""
 	@echo "All smoke tests completed."
 
@@ -154,7 +154,7 @@ smoke-a1:
 		--limit 2
 
 smoke-a2:
-	@echo "Running smoke test for A2 (oneshot + RAG)..."
+	@echo "Running smoke test for A2 (consensus large)..."
 	$(PYTHON) -m oncology_rag.cli.eval matrix \
 		--dataset $(DATASET_SMOKE) \
 		--provider-config $(PROVIDER_CONFIG) \
@@ -166,24 +166,14 @@ smoke-a2:
 		--limit 2
 
 smoke-a3:
-	@echo "Running smoke test for A3 (consensus)..."
-	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET_SMOKE) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A3 \
-		--model-groups small \
-		--limit 2
-
-smoke-a4:
-	@echo "Running smoke test for A4 (consensus + RAG)..."
+	@echo "Running smoke test for A3 (consensus small)..."
 	$(PYTHON) -m oncology_rag.cli.eval matrix \
 		--dataset $(DATASET_SMOKE) \
 		--provider-config $(PROVIDER_CONFIG) \
 		--embeddings-config $(EMBEDDINGS_CONFIG) \
 		--chroma-config $(CHROMA_CONFIG) \
 		--runs-dir $(RUNS_DIR) \
-		--arms A4 \
+		--arms A3 \
 		--model-groups small \
 		--limit 2
 
@@ -198,7 +188,7 @@ test-mini:
 		--embeddings-config $(EMBEDDINGS_CONFIG) \
 		--chroma-config $(CHROMA_CONFIG) \
 		--runs-dir $(RUNS_DIR) \
-		--arms A1 A2 A3 A4 \
+		--arms A1 A2 A3 \
 		--model-groups small \
 		--limit 5
 
@@ -210,7 +200,7 @@ test-small:
 		--embeddings-config $(EMBEDDINGS_CONFIG) \
 		--chroma-config $(CHROMA_CONFIG) \
 		--runs-dir $(RUNS_DIR) \
-		--arms A1 A2 A3 A4 \
+		--arms A1 A2 A3 \
 		--model-groups small \
 		--limit 50
 
@@ -222,7 +212,7 @@ test-medium:
 		--embeddings-config $(EMBEDDINGS_CONFIG) \
 		--chroma-config $(CHROMA_CONFIG) \
 		--runs-dir $(RUNS_DIR) \
-		--arms A1 A2 A3 A4 \
+		--arms A1 A2 A3 \
 		--model-groups small \
 		--limit 100
 
@@ -238,7 +228,7 @@ test-full:
 		--embeddings-config $(EMBEDDINGS_CONFIG) \
 		--chroma-config $(CHROMA_CONFIG) \
 		--runs-dir $(RUNS_DIR) \
-		--arms A1 A2 A3 A4 \
+		--arms A1 A2 A3 \
 		--model-groups large small
 
 # =============================================================================
@@ -342,47 +332,6 @@ eval-a3-all:
 		--runs-dir $(RUNS_DIR) \
 		--arms A3 \
 		--model-groups large small
-
-eval-a4-large:
-	@echo "Running A4 on validated ground truth (large models)..."
-	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A4 \
-		--model-groups large
-
-eval-a4-small:
-	@echo "Running A4 on validated ground truth (small models)..."
-	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A4 \
-		--model-groups small
-
-eval-a4-all:
-	@echo "Running A4 on validated ground truth (large + small models)..."
-	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A4 \
-		--model-groups large small
-
-eval-a4-qwen:
-	@echo "Running A4 on validated ground truth (qwen3_vl_30b only)..."
-	$(PYTHON) -m oncology_rag.cli.eval single \
-		--experiment configs/experiments/a4_consensus_small.yaml \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--runs-dir $(RUNS_DIR)
 
 # =============================================================================
 # REPORTS

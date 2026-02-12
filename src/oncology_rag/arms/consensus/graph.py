@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Literal
 
 from langgraph.graph import END, StateGraph
@@ -79,7 +80,6 @@ class ConsensusGraphBuilder:
 
 def _parse_supervisor_json(text: str) -> dict[str, Any]:
     """Extract JSON from supervisor response."""
-    # Try to find JSON block
     json_match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
     if json_match:
         try:
@@ -87,7 +87,6 @@ def _parse_supervisor_json(text: str) -> dict[str, Any]:
         except json.JSONDecodeError:
             pass
 
-    # Try to find raw JSON object
     json_match = re.search(r"\{[^{}]*\}", text, re.DOTALL)
     if json_match:
         try:
@@ -100,7 +99,6 @@ def _parse_supervisor_json(text: str) -> dict[str, Any]:
 
 def _extract_likert_score(text: str) -> str | None:
     """Extract Likert score from text."""
-    # Look for explicit score patterns
     patterns = [
         r"[Cc]onsensus\s*[Ss]core[\"']?\s*:\s*[\"']?([+-]?[012])",
         r"[Ff]inal\s*[Ss]core[\"']?\s*:\s*[\"']?([+-]?[012])",
@@ -112,7 +110,6 @@ def _extract_likert_score(text: str) -> str | None:
         match = re.search(pattern, text)
         if match:
             score = match.group(1)
-            # Normalize score format
             if score in ("0", "+0", "-0"):
                 return "0"
             if score in ("1", "+1"):
@@ -129,10 +126,13 @@ def _extract_likert_score(text: str) -> str | None:
 def create_consensus_graph(
     llm_call_fn: Callable[[str, list[dict[str, str]], dict[str, Any]], dict[str, Any]],
     retrieval_fn: Callable[[str, int, dict[str, Any] | None], Any] | None = None,
-    max_rounds: int = 3,
+    max_rounds: int = 13,
     model_key: str = "unknown",
 ) -> tuple[StateGraph, ConsensusGraphBuilder]:
     """Create the consensus graph workflow.
+
+    Doctors run in parallel per round with shared conversation_history.
+    Consensus is determined solely by supervisor (TERMINATE), not by voting.
 
     Args:
         llm_call_fn: Function to make LLM calls (model_id, messages, params) -> response
@@ -181,248 +181,164 @@ def create_consensus_graph(
             state["evidence_text"] = ""
             state["all_citations"] = []
 
-        return state
-
-    def run_hepatologist(state: ConsensusState) -> ConsensusState:
-        """Run the Hepatologist specialist agent."""
-        model_id = state.get("model_id", "")
-        llm_params = state.get("llm_params", {})
-
-        system_prompt = get_hepatologist_system_prompt()
         case_prompt = get_case_presentation_prompt(
             case=state.get("case", ""),
             task=state.get("task", ""),
             evidence_text=state.get("evidence_text"),
         )
-
-        # Include previous round context if available
-        messages = [{"role": "system", "content": system_prompt}]
-
-        if state.get("messages"):
-            for msg in state["messages"]:
-                messages.append(msg)
-
-        messages.append({"role": "user", "content": case_prompt})
-
-        start_time = _time.monotonic()
-        response = llm_call_fn(model_id, messages, llm_params)
-        latency_ms = (_time.monotonic() - start_time) * 1000.0
-        response_text = response.get("text", "")
-        usage = response.get("usage", {}) or {}
-
-        # Track LLM call
-        builder.add_llm_call(
-            role="hepatologist",
-            model_id=model_id,
-            model_key=model_key,
-            run_id=state.get("run_id", ""),
-            question_id=state.get("question_id", ""),
-            latency_ms=latency_ms,
-            usage=usage,
-        )
-
-        # Extract score from response
-        score = _extract_likert_score(response_text)
-        confidence = 0.8 if score else 0.5
-
-        # Track citations
-        cited = []
-        for ev in state.get("retrieved_evidence", []):
-            if ev["chunk_id"] in response_text:
-                cited.append(ev["chunk_id"])
-
-        state["hepatologist_output"] = DoctorOutput(
-            doctor_id="hepatologist",
-            specialty="Hepatology",
-            analysis=response_text,
-            hypothesis_assessment=score or "undetermined",
-            confidence=confidence,
-            cited_evidence=cited,
-        )
-
-        # Add to conversation
-        state["messages"] = state.get("messages", []) + [
-            {"role": "assistant", "content": f"[Hepatologist]: {response_text}"}
-        ]
-
+        state["messages"] = [{"role": "user", "content": case_prompt}]
         return state
 
-    def run_oncologist(state: ConsensusState) -> ConsensusState:
-        """Run the Oncologist specialist agent."""
-        model_id = state.get("model_id", "")
-        llm_params = state.get("llm_params", {})
-
-        system_prompt = get_oncologist_system_prompt()
-
-        # Build context from previous responses
-        context_parts = []
-        if state.get("hepatologist_output"):
-            context_parts.append(
-                f"Hepatologist's assessment:\n{state['hepatologist_output'].analysis}"
-            )
-
-        context = "\n\n".join(context_parts)
-        case_prompt = get_case_presentation_prompt(
-            case=state.get("case", ""),
-            task=state.get("task", ""),
-            evidence_text=state.get("evidence_text"),
-        )
-
-        if context:
-            case_prompt += f"\n\nPREVIOUS SPECIALIST INPUT:\n{context}"
-
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": case_prompt},
+    def _run_single_doctor(
+        doctor_id: str,
+        specialty: str,
+        system_prompt: str,
+        messages: list[dict[str, str]],
+        model_id: str,
+        llm_params: dict[str, Any],
+        retrieved_evidence: list[dict[str, Any]],
+        run_id: str,
+        question_id: str,
+    ) -> tuple[str, DoctorOutput, float, dict]:
+        clean_messages = [
+            {k: v for k, v in m.items() if k not in ("_run_id", "_question_id")}
+            for m in messages
         ]
-
         start_time = _time.monotonic()
-        response = llm_call_fn(model_id, messages, llm_params)
+        response = llm_call_fn(model_id, clean_messages, llm_params)
         latency_ms = (_time.monotonic() - start_time) * 1000.0
         response_text = response.get("text", "")
         usage = response.get("usage", {}) or {}
-
-        # Track LLM call
-        builder.add_llm_call(
-            role="oncologist",
-            model_id=model_id,
-            model_key=model_key,
-            run_id=state.get("run_id", ""),
-            question_id=state.get("question_id", ""),
-            latency_ms=latency_ms,
-            usage=usage,
-        )
 
         score = _extract_likert_score(response_text)
         confidence = 0.8 if score else 0.5
 
         cited = []
-        for ev in state.get("retrieved_evidence", []):
+        for ev in retrieved_evidence:
             if ev["chunk_id"] in response_text:
                 cited.append(ev["chunk_id"])
 
-        state["oncologist_output"] = DoctorOutput(
-            doctor_id="oncologist",
-            specialty="Oncology",
+        output = DoctorOutput(
+            doctor_id=doctor_id,
+            specialty=specialty,
             analysis=response_text,
             hypothesis_assessment=score or "undetermined",
             confidence=confidence,
             cited_evidence=cited,
         )
+        return doctor_id, output, latency_ms, usage
 
-        state["messages"] = state.get("messages", []) + [
-            {"role": "assistant", "content": f"[Oncologist]: {response_text}"}
-        ]
-
-        return state
-
-    def run_radiologist(state: ConsensusState) -> ConsensusState:
-        """Run the Radiologist specialist agent."""
+    def run_doctors_round(state: ConsensusState) -> ConsensusState:
+        """Run all doctor agents in parallel with shared conversation_history."""
         model_id = state.get("model_id", "")
         llm_params = state.get("llm_params", {})
+        messages = list(state.get("messages", []))
+        retrieved_evidence = state.get("retrieved_evidence", [])
 
-        system_prompt = get_radiologist_system_prompt()
+        run_id = state.get("run_id", "")
+        question_id = state.get("question_id", "")
 
-        # Build context from previous responses
-        context_parts = []
-        if state.get("hepatologist_output"):
-            context_parts.append(
-                f"Hepatologist's assessment:\n{state['hepatologist_output'].analysis}"
-            )
-        if state.get("oncologist_output"):
-            context_parts.append(
-                f"Oncologist's assessment:\n{state['oncologist_output'].analysis}"
-            )
-
-        context = "\n\n".join(context_parts)
-        case_prompt = get_case_presentation_prompt(
-            case=state.get("case", ""),
-            task=state.get("task", ""),
-            evidence_text=state.get("evidence_text"),
-        )
-
-        if context:
-            case_prompt += f"\n\nPREVIOUS SPECIALIST INPUT:\n{context}"
-
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": case_prompt},
+        round_num = state.get("round", 0) + 1
+        doctors_config = [
+            ("hepatologist", "Hepatologist", "Hepatology", "hepatology", get_hepatologist_system_prompt()),
+            ("oncologist", "Oncologist", "Oncology", "oncology", get_oncologist_system_prompt()),
+            ("radiologist", "Radiologist", "Radiology", "radiology", get_radiologist_system_prompt()),
         ]
 
-        start_time = _time.monotonic()
-        response = llm_call_fn(model_id, messages, llm_params)
-        latency_ms = (_time.monotonic() - start_time) * 1000.0
-        response_text = response.get("text", "")
-        usage = response.get("usage", {}) or {}
+        if round_num > 1:
+            def _follow_up_for(role_name: str, domain: str) -> str:
+                return (
+                    f"\n\nAs the {role_name}, based on the full discussion above, "
+                    f"provide your updated assessment from your {domain} perspective. "
+                    "Consider the opinions of the other specialists and the supervisor."
+                )
+        else:
+            def _follow_up_for(role_name: str, domain: str) -> str:
+                return ""
 
-        # Track LLM call
-        builder.add_llm_call(
-            role="radiologist",
-            model_id=model_id,
-            model_key=model_key,
-            run_id=state.get("run_id", ""),
-            question_id=state.get("question_id", ""),
-            latency_ms=latency_ms,
-            usage=usage,
-        )
+        def _messages_for(
+            doctor_id: str,
+            role_name: str,
+            domain: str,
+            system_prompt: str,
+        ) -> list[dict[str, Any]]:
+            msgs = [{"role": "system", "content": system_prompt}]
+            for m in messages:
+                role = m.get("role", "user")
+                content = m.get("content", "")
+                msgs.append({"role": role, "content": content})
+            if round_num > 1:
+                follow_up = _follow_up_for(role_name, domain)
+                msgs.append({"role": "user", "content": follow_up})
+            return msgs
 
-        score = _extract_likert_score(response_text)
-        confidence = 0.8 if score else 0.5
+        outputs: dict[str, DoctorOutput] = {}
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {
+                executor.submit(
+                    _run_single_doctor,
+                    doctor_id,
+                    specialty,
+                    system_prompt,
+                    _messages_for(doctor_id, role_name, domain, system_prompt),
+                    model_id,
+                    llm_params,
+                    retrieved_evidence,
+                    run_id,
+                    question_id,
+                ): doctor_id
+                for doctor_id, role_name, specialty, domain, system_prompt in doctors_config
+            }
+            for future in as_completed(futures):
+                doctor_id, output, latency_ms, usage = future.result()
+                outputs[doctor_id] = output
+                builder.add_llm_call(
+                    role=doctor_id,
+                    model_id=model_id,
+                    model_key=model_key,
+                    run_id=run_id,
+                    question_id=question_id,
+                    latency_ms=latency_ms,
+                    usage=usage,
+                )
 
-        cited = []
-        for ev in state.get("retrieved_evidence", []):
-            if ev["chunk_id"] in response_text:
-                cited.append(ev["chunk_id"])
+        state["hepatologist_output"] = outputs.get("hepatologist")
+        state["oncologist_output"] = outputs.get("oncologist")
+        state["radiologist_output"] = outputs.get("radiologist")
 
-        state["radiologist_output"] = DoctorOutput(
-            doctor_id="radiologist",
-            specialty="Radiology",
-            analysis=response_text,
-            hypothesis_assessment=score or "undetermined",
-            confidence=confidence,
-            cited_evidence=cited,
-        )
+        new_messages = list(messages)
+        for doctor_id, role_name, specialty, domain, _ in doctors_config:
+            out = outputs.get(doctor_id)
+            if out:
+                new_messages.append({
+                    "role": "assistant",
+                    "content": f"[{role_name}]: {out.analysis}",
+                })
 
-        state["messages"] = state.get("messages", []) + [
-            {"role": "assistant", "content": f"[Radiologist]: {response_text}"}
-        ]
-
+        state["messages"] = new_messages
         return state
 
     def run_supervisor(state: ConsensusState) -> ConsensusState:
-        """Run the Supervisor agent to evaluate consensus."""
+        """Run the Supervisor agent; consensus is decided solely by supervisor."""
         model_id = state.get("model_id", "")
         llm_params = state.get("llm_params", {})
 
         system_prompt = get_supervisor_system_prompt()
+        messages = state.get("messages", [])
 
-        # Collect all specialist assessments
-        assessments = []
-        scores = []
+        def _format_message(m: dict[str, Any]) -> str:
+            role = m.get("role", "user")
+            content = m.get("content", "")
+            if role == "user":
+                return f"Admin/Case:\n{content}"
+            for label in ("[Hepatologist]:", "[Oncologist]:", "[Radiologist]:", "[Supervisor]:"):
+                if content.startswith(label):
+                    specialty_name = label.strip("[]:")
+                    body = content[len(label):].lstrip()
+                    return f"{specialty_name}:\n{body}"
+            return f"Assistant:\n{content}"
 
-        if state.get("hepatologist_output"):
-            assessments.append(
-                f"HEPATOLOGIST:\n{state['hepatologist_output'].analysis}\n"
-                f"Score: {state['hepatologist_output'].hypothesis_assessment}"
-            )
-            if state["hepatologist_output"].hypothesis_assessment != "undetermined":
-                scores.append(state["hepatologist_output"].hypothesis_assessment)
-
-        if state.get("oncologist_output"):
-            assessments.append(
-                f"ONCOLOGIST:\n{state['oncologist_output'].analysis}\n"
-                f"Score: {state['oncologist_output'].hypothesis_assessment}"
-            )
-            if state["oncologist_output"].hypothesis_assessment != "undetermined":
-                scores.append(state["oncologist_output"].hypothesis_assessment)
-
-        if state.get("radiologist_output"):
-            assessments.append(
-                f"RADIOLOGIST:\n{state['radiologist_output'].analysis}\n"
-                f"Score: {state['radiologist_output'].hypothesis_assessment}"
-            )
-            if state["radiologist_output"].hypothesis_assessment != "undetermined":
-                scores.append(state["radiologist_output"].hypothesis_assessment)
+        conversation_text = "\n\n".join(_format_message(m) for m in messages)
 
         case_prompt = f"""CASE UNDER DISCUSSION:
 {state.get('case', '')}
@@ -430,26 +346,25 @@ def create_consensus_graph(
 TASK:
 {state.get('task', '')}
 
-SPECIALIST ASSESSMENTS (Round {state.get('round', 1)}):
+FULL CONVERSATION HISTORY (Round {state.get('round', 1)}):
 
-{chr(10).join(assessments)}
+{conversation_text}
 
 Please evaluate the specialists' assessments and determine if consensus has been reached.
-If consensus is reached, provide the final Likert score.
+If consensus is reached, provide the final Likert score and output TERMINATE.
 If not, identify areas of disagreement and guide further discussion."""
 
-        messages = [
+        supervisor_messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": case_prompt},
         ]
 
         start_time = _time.monotonic()
-        response = llm_call_fn(model_id, messages, llm_params)
+        response = llm_call_fn(model_id, supervisor_messages, llm_params)
         latency_ms = (_time.monotonic() - start_time) * 1000.0
         response_text = response.get("text", "")
         usage = response.get("usage", {}) or {}
 
-        # Track LLM call
         builder.add_llm_call(
             role="supervisor",
             model_id=model_id,
@@ -460,19 +375,10 @@ If not, identify areas of disagreement and guide further discussion."""
             usage=usage,
         )
 
-        # Parse supervisor response
         parsed = _parse_supervisor_json(response_text)
         consensus_score = parsed.get("Consensus Score") or _extract_likert_score(response_text)
 
-        # Check for consensus
-        consensus_reached = "TERMINATE" in response_text or (
-            len(set(scores)) == 1 and len(scores) >= 2
-        )
-
-        # If all specialists agree, use their score
-        if len(set(scores)) == 1 and scores:
-            consensus_score = scores[0]
-            consensus_reached = True
+        consensus_reached = "TERMINATE" in response_text.upper()
 
         state["supervisor_decision"] = SupervisorDecision(
             consensus_reached=consensus_reached,
@@ -492,7 +398,6 @@ If not, identify areas of disagreement and guide further discussion."""
         ]
 
         state["round"] = state.get("round", 0) + 1
-
         return state
 
     def should_continue(state: ConsensusState) -> Literal["doctors", "end"]:
@@ -503,36 +408,23 @@ If not, identify areas of disagreement and guide further discussion."""
             return "end"
         return "doctors"
 
-    # Build the graph
     workflow = StateGraph(ConsensusState)
 
-    # Add nodes
     workflow.add_node("retrieve", retrieve_evidence)
-    workflow.add_node("hepatologist", run_hepatologist)
-    workflow.add_node("oncologist", run_oncologist)
-    workflow.add_node("radiologist", run_radiologist)
+    workflow.add_node("doctors_round", run_doctors_round)
     workflow.add_node("supervisor", run_supervisor)
 
-    # Set entry point
     workflow.set_entry_point("retrieve")
-
-    # Add edges for sequential flow
-    workflow.add_edge("retrieve", "hepatologist")
-    workflow.add_edge("hepatologist", "oncologist")
-    workflow.add_edge("oncologist", "radiologist")
-    workflow.add_edge("radiologist", "supervisor")
-
-    # Add conditional edge from supervisor
+    workflow.add_edge("retrieve", "doctors_round")
+    workflow.add_edge("doctors_round", "supervisor")
     workflow.add_conditional_edges(
         "supervisor",
         should_continue,
         {
-            "doctors": "hepatologist",
+            "doctors": "doctors_round",
             "end": END,
         },
     )
 
-    # Compile the graph
     graph = workflow.compile()
-
     return graph, builder

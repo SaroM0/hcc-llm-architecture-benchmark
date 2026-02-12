@@ -1,4 +1,4 @@
-"""A4 Multi-Agent Consensus RAG arm for small models."""
+"""A2 Multi-Agent Consensus RAG arm for large models."""
 
 from __future__ import annotations
 
@@ -15,18 +15,18 @@ from oncology_rag.observability.events import ConsensusCompleteEvent
 from oncology_rag.retrieval.retriever import Retriever, RetrievalResult
 
 
-class A4ConsensusRagSmall:
-    """Multi-agent consensus RAG arm for small models.
+class A2ConsensusRagLarge:
+    """Multi-agent consensus RAG arm for large models.
 
     This arm implements a deliberation process where:
     - Evidence is retrieved from ChromaDB
     - Three specialist doctors (Hepatologist, Oncologist, Radiologist) analyze the case
     - Each specialist provides their assessment based on their expertise
     - A supervisor evaluates consensus and determines the final answer
-    - Uses small models via the 'consensus_small' role
+    - Uses large models via the 'consensus_large' role
     """
 
-    arm_id = "A4"
+    arm_id = "A2"
 
     def __init__(
         self,
@@ -36,7 +36,7 @@ class A4ConsensusRagSmall:
         retriever: Retriever,
         top_k: int = 5,
         filters: Mapping[str, Any] | None = None,
-        max_rounds: int = 2,
+        max_rounds: int = 13,
         safety_policy: str | None = None,
     ) -> None:
         self._llm_router = llm_router
@@ -78,14 +78,12 @@ class A4ConsensusRagSmall:
         events = []
         total_started = time.monotonic()
 
-        # Get model for small models
         resolution = self._llm_router.for_role(
-            "consensus_small", overrides=context.role_overrides
+            "consensus_large", overrides=context.role_overrides
         )
         model_id = resolution.model.model_id
         model_key = resolution.model.key
 
-        # Create the consensus graph
         graph, builder = create_consensus_graph(
             llm_call_fn=self._make_llm_call,
             retrieval_fn=self._make_retrieval_call,
@@ -94,7 +92,6 @@ class A4ConsensusRagSmall:
         )
         builder.clear_events()
 
-        # Build task description for SCT
         is_sct = item.metadata.get("expected_answer") is not None
         if is_sct:
             task = (
@@ -111,7 +108,6 @@ class A4ConsensusRagSmall:
         else:
             task = "Provide a clinical assessment based on the case information and retrieved evidence."
 
-        # Initialize state
         initial_state: ConsensusState = {
             "case": item.question,
             "task": task,
@@ -135,14 +131,10 @@ class A4ConsensusRagSmall:
             "filters": self._filters,
         }
 
-        # Run the consensus graph
         final_state = graph.invoke(initial_state)
-
         events.extend(builder.events)
-
         total_latency_ms = (time.monotonic() - total_started) * 1000.0
 
-        # Extract results
         supervisor_decision = final_state.get("supervisor_decision")
         consensus_reached = final_state.get("consensus", False)
         final_confidence = (
@@ -163,15 +155,11 @@ class A4ConsensusRagSmall:
             )
         )
 
-        # Get final answer
         final_answer = final_state.get("final_answer", "")
         if not final_answer and supervisor_decision:
             final_answer = supervisor_decision.final_answer or ""
 
-        # Collect all citations
         all_citations = list(set(final_state.get("all_citations", [])))
-
-        # Build evidence_used from retrieved evidence
         retrieved_evidence = final_state.get("retrieved_evidence", [])
         evidence_used = [
             EvidenceRef(
@@ -182,18 +170,16 @@ class A4ConsensusRagSmall:
             for ev in retrieved_evidence
         ]
 
-        # Build debug info
         debug_info = {
             "consensus_reached": consensus_reached,
             "total_rounds": final_round,
             "max_rounds": self._max_rounds,
-            "model_class": "small",
+            "model_class": "large",
             "final_confidence": final_confidence,
             "top_k": self._top_k,
             "evidence_count": len(retrieved_evidence),
             "total_citations": len(all_citations),
             "specialist_assessments": {},
-            # Token and cost tracking
             "total_prompt_tokens": builder.total_prompt_tokens,
             "total_completion_tokens": builder.total_completion_tokens,
             "total_tokens": builder.total_tokens,
@@ -201,7 +187,6 @@ class A4ConsensusRagSmall:
             "llm_calls_count": len(builder.events),
         }
 
-        # Add specialist outputs to debug
         if final_state.get("hepatologist_output"):
             debug_info["specialist_assessments"]["hepatologist"] = {
                 "score": final_state["hepatologist_output"].hypothesis_assessment,
@@ -231,7 +216,7 @@ class A4ConsensusRagSmall:
 
         used_models = [
             UsedModel(
-                role="consensus_small",
+                role="consensus_large",
                 model_key=resolution.model.key,
                 model_id=model_id,
             )

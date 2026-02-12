@@ -1,5 +1,5 @@
 id: smoke_consensus_rag
-arm: A4
+arm: A3
 model_roles:
   consensus_small: qwen3_vl_30b
 model_keys:

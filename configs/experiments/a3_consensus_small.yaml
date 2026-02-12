@@ -1,17 +1,21 @@
-id: small_oneshot_rag
-arm: A2
+id: A3
+arm: A3
 model_roles:
-  oneshot_rag: gpt_oss_20b
+  consensus_small: qwen3_vl_30b
 model_keys:
-  - gpt_oss_20b
+  - qwen3_vl_30b
+consensus:
+  num_doctors: 4
+  max_rounds: 13
+  consensus_threshold: 0.75
 retrieval:
-  top_k: 4
+  top_k: 5
   filters: {}
 embeddings_config: configs/rag/embeddings.yaml
 chroma_config: configs/rag/chroma.yaml
 retrieval_config: configs/rag/retrieval.yaml
 llm_params:
-  temperature: 0.2
-  max_tokens: 512
+  temperature: 0.3
+  max_tokens: 1024
 output_schema: null
 rag: true

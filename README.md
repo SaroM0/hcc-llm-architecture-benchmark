@@ -28,11 +28,10 @@ make check-env  # Verify environment and dependencies
 ### Smoke Tests (2 items, quick validation)
 
 ```bash
-make smoke      # Run all smoke tests (A1-A4)
+make smoke      # Run all smoke tests (A1-A3)
 make smoke-a1   # A1: oneshot
-make smoke-a2   # A2: oneshot + RAG
-make smoke-a3   # A3: consensus
-make smoke-a4   # A4: consensus + RAG
+make smoke-a2   # A2: consensus large
+make smoke-a3   # A3: consensus small
 ```
 
 ### Evaluation Tests (small models only)
