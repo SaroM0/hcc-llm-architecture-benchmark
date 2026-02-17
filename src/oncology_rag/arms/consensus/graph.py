@@ -147,62 +147,103 @@ def create_consensus_graph(
     import time as _time
 
     def retrieve_evidence(state: ConsensusState) -> ConsensusState:
-        """Retrieve evidence from vector store if retrieval_fn is provided."""
-        if retrieval_fn is None:
-            return state
+        """Initialize case context before specialist rounds.
 
-        top_k = state.get("top_k", 5)
-        filters = state.get("filters", {})
-        query = state.get("case", "")
-
-        try:
-            result = retrieval_fn(query, top_k, filters)
-            evidence_list = []
-            evidence_text_parts = []
-
-            if result is not None:
-                for chunk_id, text, metadata in zip(
-                    result.ids, result.documents, result.metadatas, strict=False
-                ):
-                    evidence_list.append({
-                        "chunk_id": chunk_id,
-                        "text": text,
-                        "metadata": metadata,
-                    })
-                    source = metadata.get("source", "Unknown")
-                    evidence_text_parts.append(f"[{chunk_id}] ({source}):\n{text}")
-
-            state["retrieved_evidence"] = evidence_list
-            state["evidence_text"] = "\n\n".join(evidence_text_parts)
-            state["all_citations"] = [e["chunk_id"] for e in evidence_list]
-
-        except Exception:
-            state["retrieved_evidence"] = []
-            state["evidence_text"] = ""
-            state["all_citations"] = []
-
+        Evidence retrieval is delegated to each specialist per round.
+        """
         case_prompt = get_case_presentation_prompt(
             case=state.get("case", ""),
             task=state.get("task", ""),
-            evidence_text=state.get("evidence_text"),
+            evidence_text=None,
         )
+        state["retrieved_evidence"] = state.get("retrieved_evidence", [])
+        state["evidence_text"] = ""
+        state["all_citations"] = state.get("all_citations", [])
         state["messages"] = [{"role": "user", "content": case_prompt}]
         return state
 
+    def _build_doctor_query(
+        *,
+        case: str,
+        task: str,
+        role_name: str,
+        domain: str,
+        round_num: int,
+        messages: list[dict[str, str]],
+    ) -> str:
+        history = "\n\n".join(
+            m.get("content", "")
+            for m in messages[-8:]
+            if m.get("content")
+        )
+        return (
+            f"Role: {role_name} ({domain})\n"
+            f"Round: {round_num}\n"
+            f"Case:\n{case}\n\n"
+            f"Task:\n{task}\n\n"
+            f"Recent Discussion:\n{history}"
+        )
+
     def _run_single_doctor(
         doctor_id: str,
+        role_name: str,
         specialty: str,
+        domain: str,
         system_prompt: str,
         messages: list[dict[str, str]],
         model_id: str,
         llm_params: dict[str, Any],
-        retrieved_evidence: list[dict[str, Any]],
+        case: str,
+        task: str,
+        top_k: int,
+        filters: dict[str, Any] | None,
+        round_num: int,
         run_id: str,
         question_id: str,
-    ) -> tuple[str, DoctorOutput, float, dict]:
+    ) -> tuple[str, DoctorOutput, float, dict, list[dict[str, Any]]]:
+        retrieved_evidence: list[dict[str, Any]] = []
+        evidence_text_parts: list[str] = []
+
+        if retrieval_fn is not None:
+            query = _build_doctor_query(
+                case=case,
+                task=task,
+                role_name=role_name,
+                domain=domain,
+                round_num=round_num,
+                messages=messages,
+            )
+            try:
+                result = retrieval_fn(query, top_k, filters)
+                if result is not None:
+                    for chunk_id, text, metadata in zip(
+                        result.ids, result.documents, result.metadatas, strict=False
+                    ):
+                        metadata = metadata or {}
+                        retrieved_evidence.append({
+                            "chunk_id": chunk_id,
+                            "text": text,
+                            "metadata": metadata,
+                        })
+                        source = metadata.get("source", "Unknown")
+                        evidence_text_parts.append(f"[{chunk_id}] ({source}):\n{text}")
+            except Exception:
+                retrieved_evidence = []
+                evidence_text_parts = []
+
+        evidence_text = "\n\n".join(evidence_text_parts)
+        doctor_messages = list(messages)
+        doctor_messages.append({
+            "role": "user",
+            "content": get_case_presentation_prompt(
+                case=case,
+                task=task,
+                evidence_text=evidence_text or None,
+            ),
+        })
         clean_messages = [
             {k: v for k, v in m.items() if k not in ("_run_id", "_question_id")}
-            for m in messages
+            for m in doctor_messages
         ]
         start_time = _time.monotonic()
         response = llm_call_fn(model_id, clean_messages, llm_params)
@@ -226,14 +267,17 @@ def create_consensus_graph(
             confidence=confidence,
             cited_evidence=cited,
         )
-        return doctor_id, output, latency_ms, usage
+        return doctor_id, output, latency_ms, usage, retrieved_evidence
 
     def run_doctors_round(state: ConsensusState) -> ConsensusState:
         """Run all doctor agents in parallel with shared conversation_history."""
         model_id = state.get("model_id", "")
         llm_params = state.get("llm_params", {})
         messages = list(state.get("messages", []))
-        retrieved_evidence = state.get("retrieved_evidence", [])
+        case = state.get("case", "")
+        task = state.get("task", "")
+        top_k = state.get("top_k", 5)
+        filters = state.get("filters", {})
 
         run_id = state.get("run_id", "")
         question_id = state.get("question_id", "")
@@ -273,25 +317,33 @@ def create_consensus_graph(
             return msgs
 
         outputs: dict[str, DoctorOutput] = {}
+        round_evidence: list[dict[str, Any]] = []
         with ThreadPoolExecutor(max_workers=3) as executor:
             futures = {
                 executor.submit(
                     _run_single_doctor,
                     doctor_id,
+                    role_name,
                     specialty,
+                    domain,
                     system_prompt,
                     _messages_for(doctor_id, role_name, domain, system_prompt),
                     model_id,
                     llm_params,
-                    retrieved_evidence,
+                    case,
+                    task,
+                    top_k,
+                    filters,
+                    round_num,
                     run_id,
                     question_id,
                 ): doctor_id
                 for doctor_id, role_name, specialty, domain, system_prompt in doctors_config
             }
             for future in as_completed(futures):
-                doctor_id, output, latency_ms, usage = future.result()
+                doctor_id, output, latency_ms, usage, doctor_evidence = future.result()
                 outputs[doctor_id] = output
+                round_evidence.extend(doctor_evidence)
                 builder.add_llm_call(
                     role=doctor_id,
                     model_id=model_id,
@@ -316,6 +368,13 @@ def create_consensus_graph(
                 })
 
         state["messages"] = new_messages
+        previous_evidence = list(state.get("retrieved_evidence", []))
+        state["retrieved_evidence"] = previous_evidence + round_evidence
+        state["all_citations"] = list({
+            ev.get("chunk_id")
+            for ev in state["retrieved_evidence"]
+            if ev.get("chunk_id")
+        })
         return state
 
     def run_supervisor(state: ConsensusState) -> ConsensusState:
