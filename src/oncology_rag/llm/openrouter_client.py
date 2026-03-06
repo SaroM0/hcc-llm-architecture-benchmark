@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from http.client import IncompleteRead
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -69,7 +70,13 @@ def _post_json(
             request = urllib.request.Request(url, data=body, headers=dict(headers), method="POST")
             with urllib.request.urlopen(request, timeout=timeout_s) as response:
                 return json.loads(response.read().decode("utf-8"))
-        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+        except (
+            urllib.error.HTTPError,
+            urllib.error.URLError,
+            TimeoutError,
+            IncompleteRead,
+            json.JSONDecodeError,
+        ) as exc:
             last_error = exc
             if attempt >= retries:
                 break
@@ -83,7 +90,7 @@ def normalize_chat_response(raw: Mapping[str, Any]) -> Dict[str, Any]:
         choice = next(iter(raw.get("choices") or []), None)
     message = (choice or {}).get("message", {})
     return {
-        "text": message.get("content", ""),
+        "text": str(message.get("content") or ""),
         "tool_calls": message.get("tool_calls", []),
         "usage": raw.get("usage", {}),
         "raw": raw,
@@ -108,11 +115,27 @@ class OpenRouterClient:
         }
         payload.update(kwargs)
         url = f"{self._config.base_url.rstrip('/')}/chat/completions"
-        raw = _post_json(
-            url=url,
-            payload=payload,
-            headers=self._headers,
-            timeout_s=self._config.timeout_s,
-            retries=self._config.retries,
-        )
+        try:
+            raw = _post_json(
+                url=url,
+                payload=payload,
+                headers=self._headers,
+                timeout_s=self._config.timeout_s,
+                retries=self._config.retries,
+            )
+        except RuntimeError as exc:
+            # Some providers reject OpenRouter-specific provider routing options.
+            # Retry once without provider hints to keep runs alive.
+            if "HTTP Error 400" in str(exc) and "provider" in payload:
+                fallback_payload = dict(payload)
+                fallback_payload.pop("provider", None)
+                raw = _post_json(
+                    url=url,
+                    payload=fallback_payload,
+                    headers=self._headers,
+                    timeout_s=self._config.timeout_s,
+                    retries=self._config.retries,
+                )
+            else:
+                raise
         return normalize_chat_response(raw)

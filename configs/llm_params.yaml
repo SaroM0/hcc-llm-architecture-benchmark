@@ -7,5 +7,7 @@ max_tokens: 2048
 max_completion_tokens: 2048
 
 provider:
-  allow_fallbacks: false
+  allow_fallbacks: true
+  sort: throughput
+  quantizations: [fp16, bf16]
   quantization: fp16

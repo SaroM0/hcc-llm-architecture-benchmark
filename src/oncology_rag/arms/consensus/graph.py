@@ -80,6 +80,7 @@ class ConsensusGraphBuilder:
 
 def _parse_supervisor_json(text: str) -> dict[str, Any]:
     """Extract JSON from supervisor response."""
+    text = str(text or "")
     json_match = re.search(r"```json\s*(.*?)\s*```", text, re.DOTALL)
     if json_match:
         try:
@@ -99,6 +100,7 @@ def _parse_supervisor_json(text: str) -> dict[str, Any]:
 
 def _extract_likert_score(text: str) -> str | None:
     """Extract Likert score from text."""
+    text = str(text or "")
     patterns = [
         r"[Cc]onsensus\s*[Ss]core[\"']?\s*:\s*[\"']?([+-]?[012])",
         r"[Ff]inal\s*[Ss]core[\"']?\s*:\s*[\"']?([+-]?[012])",
