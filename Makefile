@@ -5,6 +5,8 @@
 	eval-a1-large eval-a1-small eval-a1-all \
 	eval-a2-large eval-a2-small eval-a2-all \
 	eval-a3-large eval-a3-small eval-a3-all \
+	smoke-a3-reasoning-low smoke-a3-reasoning-high smoke-a3-reasoning \
+	eval-a3-reasoning-low eval-a3-reasoning-high eval-a3-reasoning \
 	report report-smoke sct-agreement sct-validate clean-runs
 
 # =============================================================================
@@ -29,6 +31,10 @@ RUNS_DIR := runs
 
 # Default model for single-model tests (first small model)
 DEFAULT_SMALL_MODEL := qwen3_vl_30b
+
+# Reasoning effort experiment configs
+EXPERIMENT_A3_LOW  := configs/experiments/a3_qwen_reasoning_low.yaml
+EXPERIMENT_A3_HIGH := configs/experiments/a3_qwen_reasoning_high.yaml
 
 # =============================================================================
 # HELP
@@ -83,6 +89,14 @@ help:
 	@echo "                Usage: make sct-agreement RESPONSES_CSV=path/to/responses.csv"
 	@echo "  sct-validate  Generate validated ground truth from expert responses"
 	@echo "                Usage: make sct-validate RESPONSES_CSV=path/to/responses.csv"
+	@echo ""
+	@echo "Reasoning Effort (A3 qwen, parallel):"
+	@echo "  smoke-a3-reasoning-low   Smoke test A3 qwen reasoning=low (smoke dataset)"
+	@echo "  smoke-a3-reasoning-high  Smoke test A3 qwen reasoning=high (smoke dataset)"
+	@echo "  smoke-a3-reasoning       Smoke both reasoning variants sequentially"
+	@echo "  eval-a3-reasoning-low    Full eval A3 qwen reasoning=low (validated GT)"
+	@echo "  eval-a3-reasoning-high   Full eval A3 qwen reasoning=high (validated GT)"
+	@echo "  eval-a3-reasoning        Run low AND high in PARALLEL (logs/ dir)"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  clean-runs    Remove all run artifacts"
@@ -345,6 +359,65 @@ eval-a3-all:
 		--runs-dir $(RUNS_DIR) \
 		--arms A3 \
 		--model-groups large small
+
+# =============================================================================
+# REASONING EFFORT EXPERIMENTS (A3 qwen3-vl-30b-thinking, low vs high)
+# Uses eval single to carry per-experiment llm_params (reasoning.effort).
+# eval-a3-reasoning runs both in parallel and waits for both to finish.
+# Logs are written to logs/a3_reasoning_low.log and logs/a3_reasoning_high.log.
+# =============================================================================
+smoke-a3-reasoning-low:
+	@echo "Smoke: A3 qwen reasoning=low..."
+	$(PYTHON) -m oncology_rag.cli.eval single \
+		--experiment $(EXPERIMENT_A3_LOW) \
+		--dataset $(DATASET_SMOKE) \
+		--provider-config $(PROVIDER_CONFIG) \
+		--runs-dir $(RUNS_DIR)
+
+smoke-a3-reasoning-high:
+	@echo "Smoke: A3 qwen reasoning=high..."
+	$(PYTHON) -m oncology_rag.cli.eval single \
+		--experiment $(EXPERIMENT_A3_HIGH) \
+		--dataset $(DATASET_SMOKE) \
+		--provider-config $(PROVIDER_CONFIG) \
+		--runs-dir $(RUNS_DIR)
+
+smoke-a3-reasoning: smoke-a3-reasoning-low smoke-a3-reasoning-high
+
+eval-a3-reasoning-low:
+	@echo "Running A3 qwen reasoning=low on validated ground truth..."
+	@mkdir -p logs
+	$(PYTHON) -m oncology_rag.cli.eval single \
+		--experiment $(EXPERIMENT_A3_LOW) \
+		--dataset $(DATASET_VALIDATED) \
+		--provider-config $(PROVIDER_CONFIG) \
+		--runs-dir $(RUNS_DIR) 2>&1 | tee logs/a3_reasoning_low.log
+
+eval-a3-reasoning-high:
+	@echo "Running A3 qwen reasoning=high on validated ground truth..."
+	@mkdir -p logs
+	$(PYTHON) -m oncology_rag.cli.eval single \
+		--experiment $(EXPERIMENT_A3_HIGH) \
+		--dataset $(DATASET_VALIDATED) \
+		--provider-config $(PROVIDER_CONFIG) \
+		--runs-dir $(RUNS_DIR) 2>&1 | tee logs/a3_reasoning_high.log
+
+eval-a3-reasoning:
+	@echo "Running A3 qwen reasoning=low AND reasoning=high in parallel..."
+	@echo "Logs: logs/a3_reasoning_low.log | logs/a3_reasoning_high.log"
+	@mkdir -p logs
+	@$(PYTHON) -m oncology_rag.cli.eval single \
+		--experiment $(EXPERIMENT_A3_LOW) \
+		--dataset $(DATASET_VALIDATED) \
+		--provider-config $(PROVIDER_CONFIG) \
+		--runs-dir $(RUNS_DIR) 2>&1 | tee logs/a3_reasoning_low.log & \
+	$(PYTHON) -m oncology_rag.cli.eval single \
+		--experiment $(EXPERIMENT_A3_HIGH) \
+		--dataset $(DATASET_VALIDATED) \
+		--provider-config $(PROVIDER_CONFIG) \
+		--runs-dir $(RUNS_DIR) 2>&1 | tee logs/a3_reasoning_high.log & \
+	wait
+	@echo "Both reasoning experiments completed."
 
 # =============================================================================
 # REPORTS
