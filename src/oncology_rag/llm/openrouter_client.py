@@ -56,6 +56,21 @@ def _merge_headers(config: OpenRouterConfig) -> Dict[str, str]:
     return headers
 
 
+_KEY_LIMIT_WAIT_S = 60.0
+
+
+def _is_key_limit_error(exc: urllib.error.HTTPError) -> bool:
+    """Return True if the 403 is a recoverable key-limit error (not an auth failure)."""
+    if exc.code != 403:
+        return False
+    try:
+        body = json.loads(exc.read().decode("utf-8"))
+        msg = (body.get("error") or {}).get("message", "")
+        return "limit exceeded" in msg.lower()
+    except Exception:
+        return False
+
+
 def _post_json(
     url: str,
     payload: Mapping[str, Any],
@@ -64,24 +79,36 @@ def _post_json(
     retries: int,
 ) -> Dict[str, Any]:
     body = json.dumps(payload).encode("utf-8")
-    last_error: Exception | None = None
-    for attempt in range(retries + 1):
-        try:
-            request = urllib.request.Request(url, data=body, headers=dict(headers), method="POST")
-            with urllib.request.urlopen(request, timeout=timeout_s) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except (
-            urllib.error.HTTPError,
-            urllib.error.URLError,
-            TimeoutError,
-            IncompleteRead,
-            json.JSONDecodeError,
-        ) as exc:
-            last_error = exc
-            if attempt >= retries:
-                break
-            time.sleep(1.0 * (attempt + 1))
-    raise RuntimeError(f"OpenRouter request failed: {last_error}") from last_error
+
+    while True:
+        last_error: Exception | None = None
+        key_limit_hit = False
+
+        for attempt in range(retries + 1):
+            try:
+                request = urllib.request.Request(url, data=body, headers=dict(headers), method="POST")
+                with urllib.request.urlopen(request, timeout=timeout_s) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                if _is_key_limit_error(exc):
+                    key_limit_hit = True
+                    print(
+                        f"[openrouter] Key limit exceeded — waiting {_KEY_LIMIT_WAIT_S:.0f}s before retry...",
+                        flush=True,
+                    )
+                    time.sleep(_KEY_LIMIT_WAIT_S)
+                    break
+                last_error = exc
+            except (urllib.error.URLError, TimeoutError, IncompleteRead, json.JSONDecodeError) as exc:
+                last_error = exc
+
+            if attempt < retries:
+                time.sleep(1.0 * (attempt + 1))
+
+        if key_limit_hit:
+            continue
+
+        raise RuntimeError(f"OpenRouter request failed: {last_error}") from last_error
 
 
 def normalize_chat_response(raw: Mapping[str, Any]) -> Dict[str, Any]:
