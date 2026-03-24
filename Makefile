@@ -6,7 +6,7 @@
 	eval-a2-large eval-a2-small eval-a2-all \
 	eval-a3-large eval-a3-small eval-a3-all \
 	smoke-a3-reasoning-low smoke-a3-reasoning-high smoke-a3-reasoning \
-	eval-a3-reasoning-low eval-a3-reasoning-high eval-a3-reasoning \
+	eval-a3-reasoning-low eval-a3-reasoning-high eval-a3-reasoning eval-a3-reasoning-resume \
 	report report-smoke sct-agreement sct-validate clean-runs
 
 # =============================================================================
@@ -416,6 +416,37 @@ eval-a3-reasoning:
 		--dataset $(DATASET_VALIDATED) \
 		--provider-config $(PROVIDER_CONFIG) \
 		--runs-dir $(RUNS_DIR) 2>&1 | tee logs/a3_reasoning_high.log & \
+	wait
+	@echo "Both reasoning experiments completed."
+
+# Resume partial runs. Usage:
+#   make eval-a3-reasoning-resume \
+#     RESUME_LOW=20260322_205349_A3_qwen_reasoning_low \
+#     RESUME_HIGH=20260322_205349_A3_qwen_reasoning_high
+RESUME_LOW  ?=
+RESUME_HIGH ?=
+
+eval-a3-reasoning-resume:
+	@if [ -z "$(RESUME_LOW)" ] || [ -z "$(RESUME_HIGH)" ]; then \
+		echo "Usage: make eval-a3-reasoning-resume RESUME_LOW=<run_id> RESUME_HIGH=<run_id>"; \
+		exit 1; \
+	fi
+	@echo "Resuming A3 reasoning experiments..."
+	@echo "  LOW  → $(RESUME_LOW)"
+	@echo "  HIGH → $(RESUME_HIGH)"
+	@mkdir -p logs
+	@$(PYTHON) -m oncology_rag.cli.eval single \
+		--experiment $(EXPERIMENT_A3_LOW) \
+		--dataset $(DATASET_VALIDATED) \
+		--provider-config $(PROVIDER_CONFIG) \
+		--runs-dir $(RUNS_DIR) \
+		--resume-run-id $(RESUME_LOW) 2>&1 | tee -a logs/a3_reasoning_low.log & \
+	$(PYTHON) -m oncology_rag.cli.eval single \
+		--experiment $(EXPERIMENT_A3_HIGH) \
+		--dataset $(DATASET_VALIDATED) \
+		--provider-config $(PROVIDER_CONFIG) \
+		--runs-dir $(RUNS_DIR) \
+		--resume-run-id $(RESUME_HIGH) 2>&1 | tee -a logs/a3_reasoning_high.log & \
 	wait
 	@echo "Both reasoning experiments completed."
 

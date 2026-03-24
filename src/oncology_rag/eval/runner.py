@@ -166,16 +166,35 @@ def _resolve_arm(
     raise ValueError(f"Unsupported arm: {arm_id}")
 
 
+def _load_done_ids(results_root: Path, arm_id: str, run_id: str, model_keys: list[str]) -> set[str]:
+    """Return question_ids already written in a partial run's attempt files."""
+    done: set[str] = set()
+    for mk in model_keys:
+        attempt_file = results_root / f"arm={arm_id}" / f"run={run_id}" / f"model={mk}.jsonl"
+        if not attempt_file.exists():
+            continue
+        for line in attempt_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                done.add(str(json.loads(line)["question_id"]))
+            except (json.JSONDecodeError, KeyError):
+                pass
+    return done
+
+
 def run_experiment(
     *,
     experiment_path: Path,
     dataset_path: Path,
     provider_config_path: Path,
     runs_dir: Path,
+    resume_run_id: str | None = None,
 ) -> Path:
     experiment = _load_yaml(experiment_path)
     provider_cfg = _load_yaml(provider_config_path)
-    run_id = _make_run_id(experiment.get("id", "run"))
+    run_id = resume_run_id if resume_run_id else _make_run_id(experiment.get("id", "run"))
     run_dir = runs_dir / "experiments" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     results_root = Path("results")
@@ -232,12 +251,22 @@ def run_experiment(
     # Detect dataset format from experiment config or auto-detect
     dataset_format = experiment.get("dataset_format")
 
+    # Resume: collect already-processed question_ids to skip
+    done_ids: set[str] = set()
+    if resume_run_id:
+        done_ids = _load_done_ids(results_root, arm_id, run_id, model_keys)
+        if done_ids:
+            print(f"[resume] Skipping {len(done_ids)} already-processed items.", flush=True)
+
+    file_mode = "a" if resume_run_id else "w"
     attempt_logger = AttemptLogger(results_root)
     try:
-        with predictions_path.open("w", encoding="utf-8") as pred_file, events_path.open(
-            "w", encoding="utf-8"
+        with predictions_path.open(file_mode, encoding="utf-8") as pred_file, events_path.open(
+            file_mode, encoding="utf-8"
         ) as events_file:
             for item in _load_dataset(dataset_path, dataset_format):
+                if item.question_id in done_ids:
+                    continue
                 for model_key in model_keys:
                     overrides = dict(role_overrides)
                     overrides["oneshot"] = model_key

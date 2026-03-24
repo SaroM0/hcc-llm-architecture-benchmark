@@ -34,6 +34,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="runs",
         help="Directory for run artifacts.",
     )
+    single.add_argument(
+        "--resume-run-id",
+        default=None,
+        help="Resume a partial run by its run_id (e.g. 20260322_205349_A3_qwen_reasoning_low).",
+    )
 
     # Full matrix experiment
     matrix = subparsers.add_parser("matrix", help="Run full experimental matrix")
@@ -135,6 +140,7 @@ def main() -> None:
             dataset_path=Path(args.dataset),
             provider_config_path=Path(args.provider_config),
             runs_dir=Path(args.runs_dir),
+            resume_run_id=args.resume_run_id,
         )
     elif args.command == "matrix":
         from oncology_rag.eval.orchestrator import run_full_matrix
