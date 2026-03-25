@@ -57,6 +57,7 @@ def _merge_headers(config: OpenRouterConfig) -> Dict[str, str]:
 
 
 _KEY_LIMIT_WAIT_S = 60.0
+_RETRYABLE_5XX = {429, 500, 502, 503, 504}
 
 
 def _is_key_limit_error(exc: urllib.error.HTTPError) -> bool:
@@ -79,10 +80,11 @@ def _post_json(
     retries: int,
 ) -> Dict[str, Any]:
     body = json.dumps(payload).encode("utf-8")
+    server_error_attempts = 0
 
     while True:
         last_error: Exception | None = None
-        key_limit_hit = False
+        retry_outer = False
 
         for attempt in range(retries + 1):
             try:
@@ -91,12 +93,22 @@ def _post_json(
                     return json.loads(response.read().decode("utf-8"))
             except urllib.error.HTTPError as exc:
                 if _is_key_limit_error(exc):
-                    key_limit_hit = True
+                    retry_outer = True
                     print(
                         f"[openrouter] Key limit exceeded — waiting {_KEY_LIMIT_WAIT_S:.0f}s before retry...",
                         flush=True,
                     )
                     time.sleep(_KEY_LIMIT_WAIT_S)
+                    break
+                if exc.code in _RETRYABLE_5XX:
+                    retry_outer = True
+                    wait = min(5.0 * (2 ** server_error_attempts), 60.0)
+                    server_error_attempts += 1
+                    print(
+                        f"[openrouter] Server error {exc.code} — retrying in {wait:.0f}s (attempt {server_error_attempts})...",
+                        flush=True,
+                    )
+                    time.sleep(wait)
                     break
                 last_error = exc
             except (urllib.error.URLError, TimeoutError, IncompleteRead, json.JSONDecodeError) as exc:
@@ -105,7 +117,7 @@ def _post_json(
             if attempt < retries:
                 time.sleep(1.0 * (attempt + 1))
 
-        if key_limit_hit:
+        if retry_outer:
             continue
 
         raise RuntimeError(f"OpenRouter request failed: {last_error}") from last_error
