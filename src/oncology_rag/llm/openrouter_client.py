@@ -57,7 +57,9 @@ def _merge_headers(config: OpenRouterConfig) -> Dict[str, str]:
 
 
 _KEY_LIMIT_WAIT_S = 60.0
-_RETRYABLE_5XX = {429, 500, 502, 503, 504}
+_RETRYABLE_HTTP_CODES = {429, 500, 502, 503, 504}
+# 4xx codes that are never recoverable (bad request, auth failure, not found…)
+_FATAL_HTTP_CODES = {400, 401, 403, 404, 405, 422}
 
 
 def _is_key_limit_error(exc: urllib.error.HTTPError) -> bool:
@@ -79,48 +81,49 @@ def _post_json(
     timeout_s: float,
     retries: int,
 ) -> Dict[str, Any]:
+    """POST JSON to url, retrying indefinitely on all transient errors.
+
+    Only raises on fatal 4xx responses (bad request, auth failure, etc.).
+    Timeouts, network errors, and 5xx responses retry with exponential backoff.
+    Key-limit 403s retry every 60 s until the limit is restored.
+    """
     body = json.dumps(payload).encode("utf-8")
-    server_error_attempts = 0
+    transient_attempt = 0
 
     while True:
-        last_error: Exception | None = None
-        retry_outer = False
+        try:
+            request = urllib.request.Request(url, data=body, headers=dict(headers), method="POST")
+            with urllib.request.urlopen(request, timeout=timeout_s) as response:
+                return json.loads(response.read().decode("utf-8"))
 
-        for attempt in range(retries + 1):
-            try:
-                request = urllib.request.Request(url, data=body, headers=dict(headers), method="POST")
-                with urllib.request.urlopen(request, timeout=timeout_s) as response:
-                    return json.loads(response.read().decode("utf-8"))
-            except urllib.error.HTTPError as exc:
+        except urllib.error.HTTPError as exc:
+            if exc.code in _FATAL_HTTP_CODES:
                 if _is_key_limit_error(exc):
-                    retry_outer = True
                     print(
                         f"[openrouter] Key limit exceeded — waiting {_KEY_LIMIT_WAIT_S:.0f}s before retry...",
                         flush=True,
                     )
                     time.sleep(_KEY_LIMIT_WAIT_S)
-                    break
-                if exc.code in _RETRYABLE_5XX:
-                    retry_outer = True
-                    wait = min(5.0 * (2 ** server_error_attempts), 60.0)
-                    server_error_attempts += 1
-                    print(
-                        f"[openrouter] Server error {exc.code} — retrying in {wait:.0f}s (attempt {server_error_attempts})...",
-                        flush=True,
-                    )
-                    time.sleep(wait)
-                    break
-                last_error = exc
-            except (urllib.error.URLError, TimeoutError, IncompleteRead, json.JSONDecodeError) as exc:
-                last_error = exc
+                    continue
+                raise RuntimeError(f"OpenRouter request failed: {exc}") from exc
 
-            if attempt < retries:
-                time.sleep(1.0 * (attempt + 1))
+            # 5xx or unexpected code: exponential backoff, indefinite retries
+            wait = min(5.0 * (2 ** transient_attempt), 60.0)
+            transient_attempt += 1
+            print(
+                f"[openrouter] HTTP {exc.code} — retrying in {wait:.0f}s (attempt {transient_attempt})...",
+                flush=True,
+            )
+            time.sleep(wait)
 
-        if retry_outer:
-            continue
-
-        raise RuntimeError(f"OpenRouter request failed: {last_error}") from last_error
+        except (urllib.error.URLError, TimeoutError, IncompleteRead, json.JSONDecodeError) as exc:
+            wait = min(5.0 * (2 ** transient_attempt), 60.0)
+            transient_attempt += 1
+            print(
+                f"[openrouter] Transient error ({type(exc).__name__}) — retrying in {wait:.0f}s (attempt {transient_attempt})...",
+                flush=True,
+            )
+            time.sleep(wait)
 
 
 def normalize_chat_response(raw: Mapping[str, Any]) -> Dict[str, Any]:
