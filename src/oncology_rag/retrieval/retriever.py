@@ -19,9 +19,16 @@ class RetrievalResult:
 
 
 class Retriever:
-    def __init__(self, *, embedding_model: EmbeddingModel, store: VectorStore) -> None:
+    def __init__(
+        self,
+        *,
+        embedding_model: EmbeddingModel,
+        store: VectorStore,
+        reranker: Any | None = None,
+    ) -> None:
         self._embedding_model = embedding_model
         self._store = store
+        self._reranker = reranker
 
     def retrieve(
         self,
@@ -30,12 +37,26 @@ class Retriever:
         top_k: int,
         filters: Mapping[str, Any] | None = None,
     ) -> RetrievalResult:
+        # When a reranker is present, fetch a wider candidate set first.
+        fetch_k = top_k
+        if self._reranker is not None:
+            fetch_k = top_k * getattr(self._reranker, "fetch_k", 3)
+
         embedding = self._embedding_model.embed_texts([query])[0]
-        raw = self._store.query(embedding=embedding, top_k=top_k, filters=filters)
+        raw = self._store.query(embedding=embedding, top_k=fetch_k, filters=filters)
+
         ids = (raw.get("ids") or [[]])[0]
         documents = (raw.get("documents") or [[]])[0]
         metadatas = (raw.get("metadatas") or [[]])[0]
         distances = (raw.get("distances") or [[]])[0]
+
+        if self._reranker is not None and documents:
+            ranked_indices = self._reranker.rerank(query, documents, top_k=top_k)
+            ids = [ids[i] for i in ranked_indices]
+            documents = [documents[i] for i in ranked_indices]
+            metadatas = [metadatas[i] for i in ranked_indices]
+            distances = [distances[i] for i in ranked_indices]
+
         return RetrievalResult(
             ids=ids,
             documents=documents,

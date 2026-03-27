@@ -36,6 +36,7 @@ from oncology_rag.llm.openrouter_client import OpenRouterClient, OpenRouterConfi
 from oncology_rag.llm.params import resolve_llm_params
 from oncology_rag.llm.router import ModelRouter
 from oncology_rag.retrieval.embeddings import build_embedding_model
+from oncology_rag.retrieval.rerank import build_reranker
 from oncology_rag.retrieval.retriever import Retriever
 from oncology_rag.retrieval.vectorstores.chroma_store import ChromaStore
 
@@ -136,6 +137,7 @@ class ExperimentOrchestrator:
         runs_dir: Path,
         embeddings_config_path: Path | None = None,
         chroma_config_path: Path | None = None,
+        retrieval_config_path: Path | None = None,
         limit: int | None = None,
     ) -> None:
         self._provider_config_path = provider_config_path
@@ -143,6 +145,9 @@ class ExperimentOrchestrator:
         self._runs_dir = runs_dir
         self._embeddings_config_path = embeddings_config_path
         self._chroma_config_path = chroma_config_path
+        self._retrieval_config_path = retrieval_config_path or Path(
+            "configs/rag/retrieval.yaml"
+        )
         self._limit = limit
 
         # Load configs
@@ -167,9 +172,13 @@ class ExperimentOrchestrator:
 
         embeddings_cfg = _load_yaml(self._embeddings_config_path)
         chroma_cfg = _load_yaml(self._chroma_config_path)
+        retrieval_cfg = _load_yaml(self._retrieval_config_path)
         embedding_model = build_embedding_model(embeddings_cfg)
         store = ChromaStore(chroma_cfg)
-        self._retriever = Retriever(embedding_model=embedding_model, store=store)
+        reranker = build_reranker(retrieval_cfg)
+        self._retriever = Retriever(
+            embedding_model=embedding_model, store=store, reranker=reranker
+        )
         return self._retriever
 
     def run_single_experiment(

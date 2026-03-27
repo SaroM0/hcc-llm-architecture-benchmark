@@ -19,6 +19,7 @@ from oncology_rag.llm.openrouter_client import OpenRouterClient, OpenRouterConfi
 from oncology_rag.llm.params import resolve_llm_params
 from oncology_rag.llm.router import ModelRouter
 from oncology_rag.retrieval.embeddings import build_embedding_model
+from oncology_rag.retrieval.rerank import build_reranker
 from oncology_rag.retrieval.retriever import Retriever
 from oncology_rag.retrieval.vectorstores.chroma_store import ChromaStore
 from oncology_rag.eval.sct.metrics import extract_score_from_response, NUMERIC_TO_SCORE
@@ -220,12 +221,13 @@ def run_experiment(
         chroma_cfg = _load_yaml(chroma_cfg_path)
         embedding_model = build_embedding_model(embeddings_cfg)
         store = ChromaStore(chroma_cfg)
-        retriever = Retriever(embedding_model=embedding_model, store=store)
+        retrieval_defaults = _load_yaml(
+            Path(experiment.get("retrieval_config", "configs/rag/retrieval.yaml"))
+        )
         if top_k is None:
-            retrieval_defaults = _load_yaml(
-                Path(experiment.get("retrieval_config", "configs/rag/retrieval.yaml"))
-            )
             top_k = int(retrieval_defaults.get("top_k", 5))
+        reranker = build_reranker(retrieval_defaults)
+        retriever = Retriever(embedding_model=embedding_model, store=store, reranker=reranker)
     consensus_cfg = experiment.get("consensus", {}) or {}
     max_rounds = consensus_cfg.get("max_rounds")
     arm = _resolve_arm(
