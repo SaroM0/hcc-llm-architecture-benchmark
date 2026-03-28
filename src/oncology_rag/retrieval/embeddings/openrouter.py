@@ -48,7 +48,7 @@ class OpenRouterEmbeddingModel:
                     raw = json.loads(response.read().decode("utf-8"))
                 last_exc = None
                 break
-            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
                 last_exc = exc
                 time.sleep(2**attempt)
         if last_exc is not None:

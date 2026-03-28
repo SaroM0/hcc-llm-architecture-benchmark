@@ -5,10 +5,7 @@ model_roles:
 model_keys:
   - qwen3_vl_30b
 consensus:
-  num_doctors: 4
   max_rounds: 3
-  consensus_threshold: 0.75
-  top_k: 5
 retrieval:
   top_k: 5
   filters: {}

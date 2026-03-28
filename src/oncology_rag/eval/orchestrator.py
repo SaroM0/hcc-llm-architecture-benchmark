@@ -58,9 +58,7 @@ class MatrixConfig:
     model_groups: list[str] = field(default_factory=lambda: ["large", "small"])
     models: list[str] | None = None
     consensus_config: dict[str, Any] = field(default_factory=lambda: {
-        "num_doctors": 4,
         "max_rounds": 13,
-        "consensus_threshold": 0.75,
     })
     retrieval_config: dict[str, Any] = field(default_factory=lambda: {
         "top_k": 5,
@@ -483,6 +481,7 @@ def run_full_matrix(
     model_groups: list[str] | None = None,
     models: list[str] | None = None,
     limit: int | None = None,
+    resume_from: str | None = None,
 ) -> list[ExperimentResult]:
     """Convenience function to run the full experimental matrix.
 
@@ -496,6 +495,7 @@ def run_full_matrix(
         model_groups: List of model groups to run (default: all).
         models: Optional list of specific model keys (overrides model_groups).
         limit: Optional limit on number of items to evaluate.
+        resume_from: Experiment ID to resume from (e.g., "A1_gpt52").
 
     Returns:
         List of ExperimentResult for all configurations.
@@ -517,4 +517,4 @@ def run_full_matrix(
     if models:
         config.models = models
 
-    return orchestrator.run_matrix(config)
+    return orchestrator.run_matrix(config, resume_from=resume_from)

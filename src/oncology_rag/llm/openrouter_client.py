@@ -62,12 +62,22 @@ _RETRYABLE_HTTP_CODES = {429, 500, 502, 503, 504}
 _FATAL_HTTP_CODES = {400, 401, 403, 404, 405, 422}
 
 
-def _is_key_limit_error(exc: urllib.error.HTTPError) -> bool:
-    """Return True if the 403 is a recoverable key-limit error (not an auth failure)."""
-    if exc.code != 403:
-        return False
+def _read_http_error_body(exc: urllib.error.HTTPError) -> str:
+    """Read and return the response body of an HTTPError as a string.
+
+    The stream can only be read once; callers must use the returned string
+    instead of reading ``exc`` again.  Returns an empty string on failure.
+    """
     try:
-        body = json.loads(exc.read().decode("utf-8"))
+        return exc.read().decode("utf-8", errors="replace")
+    except Exception:
+        return ""
+
+
+def _is_key_limit_error(body_text: str) -> bool:
+    """Return True if ``body_text`` indicates a recoverable key-limit 403."""
+    try:
+        body = json.loads(body_text)
         msg = (body.get("error") or {}).get("message", "")
         return "limit exceeded" in msg.lower()
     except Exception:
@@ -79,13 +89,17 @@ def _post_json(
     payload: Mapping[str, Any],
     headers: Mapping[str, str],
     timeout_s: float,
-    retries: int,
+    retries: int,  # NOTE: not used to cap transient retries — loop is intentionally infinite
 ) -> Dict[str, Any]:
     """POST JSON to url, retrying indefinitely on all transient errors.
 
     Only raises on fatal 4xx responses (bad request, auth failure, etc.).
-    Timeouts, network errors, and 5xx responses retry with exponential backoff.
-    Key-limit 403s retry every 60 s until the limit is restored.
+    Timeouts, network errors, and 5xx responses retry with exponential backoff
+    (capped at 60 s per wait). Key-limit 403s retry every 60 s indefinitely.
+
+    The ``retries`` parameter is accepted for API compatibility but does not cap
+    the number of transient retries — this is intentional for long-running
+    reasoning models (e.g. qwen-thinking) that can take 35+ minutes per item.
     """
     body = json.dumps(payload).encode("utf-8")
     transient_attempt = 0
@@ -98,14 +112,18 @@ def _post_json(
 
         except urllib.error.HTTPError as exc:
             if exc.code in _FATAL_HTTP_CODES:
-                if _is_key_limit_error(exc):
+                body_text = _read_http_error_body(exc)
+                if exc.code == 403 and _is_key_limit_error(body_text):
                     print(
                         f"[openrouter] Key limit exceeded — waiting {_KEY_LIMIT_WAIT_S:.0f}s before retry...",
                         flush=True,
                     )
                     time.sleep(_KEY_LIMIT_WAIT_S)
                     continue
-                raise RuntimeError(f"OpenRouter request failed: {exc}") from exc
+                detail = f" — body: {body_text}" if body_text else ""
+                raise RuntimeError(
+                    f"OpenRouter request failed with HTTP {exc.code}{detail}"
+                ) from exc
 
             # 5xx or unexpected code: exponential backoff, indefinite retries
             wait = min(5.0 * (2 ** transient_attempt), 60.0)
@@ -168,7 +186,7 @@ class OpenRouterClient:
         except RuntimeError as exc:
             # Some providers reject OpenRouter-specific provider routing options.
             # Retry once without provider hints to keep runs alive.
-            if "HTTP Error 400" in str(exc) and "provider" in payload:
+            if "HTTP 400" in str(exc) and "provider" in payload:
                 fallback_payload = dict(payload)
                 fallback_payload.pop("provider", None)
                 raw = _post_json(

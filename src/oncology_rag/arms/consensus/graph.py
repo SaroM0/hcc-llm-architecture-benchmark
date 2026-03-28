@@ -101,6 +101,8 @@ def _parse_supervisor_json(text: str) -> dict[str, Any]:
 def _extract_likert_score(text: str) -> str | None:
     """Extract Likert score from text."""
     text = str(text or "")
+    # Strip chain-of-thought blocks emitted by thinking models (e.g. qwen-thinking)
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
     patterns = [
         r"[Cc]onsensus\s*[Ss]core[\"']?\s*:\s*[\"']?([+-]?[012])",
         r"[Ff]inal\s*[Ss]core[\"']?\s*:\s*[\"']?([+-]?[012])",
@@ -149,19 +151,20 @@ def create_consensus_graph(
     import time as _time
 
     def retrieve_evidence(state: ConsensusState) -> ConsensusState:
-        """Initialize case context before specialist rounds.
+        """Initialize shared state before the first specialist round.
 
-        Evidence retrieval is delegated to each specialist per round.
+        Actual retrieval happens inside each specialist's call so that every
+        doctor can build a query tailored to their own domain and the current
+        discussion history.  The case presentation prompt (including few-shot
+        calibration examples) is composed by _run_single_doctor together with
+        the retrieved evidence, so it must NOT be pre-built here — doing so
+        would cause it to be sent twice per doctor per round (once as the
+        conversation opener and once with evidence appended), wasting tokens.
         """
-        case_prompt = get_case_presentation_prompt(
-            case=state.get("case", ""),
-            task=state.get("task", ""),
-            evidence_text=None,
-        )
-        state["retrieved_evidence"] = state.get("retrieved_evidence", [])
+        state["retrieved_evidence"] = list(state.get("retrieved_evidence", []))
         state["evidence_text"] = ""
-        state["all_citations"] = state.get("all_citations", [])
-        state["messages"] = [{"role": "user", "content": case_prompt}]
+        state["all_citations"] = list(state.get("all_citations", []))
+        state["messages"] = []  # doctors build their own first message via _run_single_doctor
         return state
 
     def _build_doctor_query(
@@ -219,7 +222,7 @@ def create_consensus_graph(
                 result = retrieval_fn(query, top_k, filters)
                 if result is not None:
                     for chunk_id, text, metadata in zip(
-                        result.ids, result.documents, result.metadatas, strict=False
+                        result.ids, result.documents, result.metadatas, strict=True
                     ):
                         metadata = metadata or {}
                         retrieved_evidence.append({
@@ -229,7 +232,12 @@ def create_consensus_graph(
                         })
                         source = metadata.get("source", "Unknown")
                         evidence_text_parts.append(f"[{chunk_id}] ({source}):\n{text}")
-            except Exception:
+            except Exception as _retrieval_exc:
+                print(
+                    f"[retrieval] WARNING: retrieval failed for {doctor_id} "
+                    f"(q={question_id}): {type(_retrieval_exc).__name__}: {_retrieval_exc}",
+                    flush=True,
+                )
                 retrieved_evidence = []
                 evidence_text_parts = []
 
@@ -343,7 +351,16 @@ def create_consensus_graph(
                 for doctor_id, role_name, specialty, domain, system_prompt in doctors_config
             }
             for future in as_completed(futures):
-                doctor_id, output, latency_ms, usage, doctor_evidence = future.result()
+                failed_doctor_id = futures[future]
+                try:
+                    doctor_id, output, latency_ms, usage, doctor_evidence = future.result()
+                except Exception as exc:
+                    print(
+                        f"[consensus] Doctor '{failed_doctor_id}' failed in round {round_num} "
+                        f"(q={question_id}): {type(exc).__name__}: {exc}",
+                        flush=True,
+                    )
+                    raise
                 outputs[doctor_id] = output
                 round_evidence.extend(doctor_evidence)
                 builder.add_llm_call(
@@ -441,13 +458,27 @@ If not, identify areas of disagreement and guide further discussion."""
 
         consensus_reached = "TERMINATE" in response_text.upper()
 
+        # Confidence decays with the number of rounds needed to reach consensus.
+        # Formula: 0.5 + 0.5 * (1 - (round - 1) / max_rounds)
+        #   round 1  → 1.00  (immediate agreement)
+        #   round 7  → 0.77  (moderate deliberation)
+        #   round 13 → 0.54  (forced by max_rounds)
+        # Non-consensus is always 0.5 (maximum uncertainty).
+        _current_round = state.get("round", 0) + 1  # +1 because increment happens below
+        _max = max(int(state.get("max_rounds", max_rounds)), 1)
+        confidence = (
+            0.5 + 0.5 * (1.0 - (_current_round - 1) / _max)
+            if consensus_reached
+            else 0.5
+        )
+
         state["supervisor_decision"] = SupervisorDecision(
             consensus_reached=consensus_reached,
             final_answer=consensus_score,
             areas_of_agreement=parsed.get("Areas of Agreement", []),
             areas_of_disagreement=parsed.get("Areas of Disagreement", []),
             reasoning=parsed.get("Reasoning", response_text),
-            confidence=0.9 if consensus_reached else 0.6,
+            confidence=round(confidence, 3),
         )
 
         state["consensus"] = consensus_reached

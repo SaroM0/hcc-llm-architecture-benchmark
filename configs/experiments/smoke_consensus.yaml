@@ -5,7 +5,5 @@ model_roles:
 model_keys:
   - gpt_oss_20b
 consensus:
-  num_doctors: 2
   max_rounds: 1
-  consensus_threshold: 0.6
 output_schema: null

@@ -155,6 +155,7 @@ def main() -> None:
             model_groups=args.model_groups,
             models=args.models,
             limit=args.limit,
+            resume_from=args.resume_from,
         )
     else:
         parser.print_help()

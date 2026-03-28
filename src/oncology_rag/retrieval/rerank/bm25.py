@@ -110,5 +110,11 @@ class BM25Reranker:
 
     @staticmethod
     def _tokenize(text: str) -> list[str]:
-        """Lowercase word tokeniser (keeps alphanumeric tokens ≥ 2 chars)."""
-        return [t for t in re.findall(r"[a-z0-9]+", text.lower()) if len(t) >= 2]
+        """Lowercase word tokeniser.
+
+        Keeps all alphanumeric tokens including single-character ones so that
+        clinical staging notation (e.g. "T", "N", "M" in TNM staging, "B" in
+        "BCLC B") is preserved.  Empty strings produced by the regex are still
+        excluded.
+        """
+        return [t for t in re.findall(r"[a-z0-9]+", text.lower()) if t]

@@ -170,16 +170,34 @@ def load_sct_as_qa_items(path: Path) -> list[QAItem]:
     return list(sct_to_qa_items(sct_items))
 
 
+_REQUIRED_CSV_HEADERS = {
+    "question_id", "vignette_id", "hypothesis", "new_information", "validated_answer"
+}
+_VALID_QUESTION_TYPES = {"diagnosis", "management", "followup"}
+
+
 def load_validated_csv_as_qa_items(path: Path) -> list[QAItem]:
     """Load validated SCT ground truth CSV and convert to QAItems."""
     items: list[SCTItem] = []
     with open(path, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
+        if reader.fieldnames is None:
+            raise ValueError(f"CSV {path} has no header row (file may be empty)")
+        missing = _REQUIRED_CSV_HEADERS - set(reader.fieldnames)
+        if missing:
+            raise ValueError(
+                f"CSV {path} is missing required columns: {sorted(missing)}"
+            )
         for idx, row in enumerate(reader):
             question_id = (row.get("question_id") or f"q_{idx:05d}").strip()
             vignette_id = (row.get("vignette_id") or "v_0000").strip()
             vignette_text = row.get("vignette", "") or ""
             question_type = (row.get("question_type") or "diagnosis").strip().lower()
+            if question_type not in _VALID_QUESTION_TYPES:
+                raise ValueError(
+                    f"Row {idx} (id={question_id!r}): invalid question_type "
+                    f"{question_type!r}. Expected one of {sorted(_VALID_QUESTION_TYPES)}."
+                )
             hypothesis = row.get("hypothesis", "") or ""
             new_information = row.get("new_information", "") or ""
             validated_answer = _normalize_expected_answer(row.get("validated_answer"))
