@@ -38,7 +38,7 @@ class BM25Reranker:
         b: float = 0.75,
         fetch_k: int = 3,
     ) -> None:
-        self.k1 = k1
+        self.k1 = k1per
         self.b = b
         self.fetch_k = fetch_k
 

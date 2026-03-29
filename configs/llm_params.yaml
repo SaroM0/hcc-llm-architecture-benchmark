@@ -3,8 +3,8 @@
 # Guarantees comparable behavior across providers and model families.
 
 temperature: 0.2
-max_tokens: 2048
-max_completion_tokens: 2048
+max_tokens: 16384
+max_completion_tokens: 16384
 
 provider:
   allow_fallbacks: true
