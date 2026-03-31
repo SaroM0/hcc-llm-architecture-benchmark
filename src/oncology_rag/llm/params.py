@@ -7,11 +7,10 @@ from typing import Any, Mapping
 
 _DEFAULT_PARAMS: dict[str, Any] = {
     "temperature": 0.2,
-    "max_tokens": 2048,
-    "max_completion_tokens": 2048,
+    "max_tokens": 16384,
     "provider": {
-        "allow_fallbacks": False,
-        "quantization": "fp16",
+        "allow_fallbacks": True,
+        "quantizations": ["fp16", "bf16"],
     },
 }
 

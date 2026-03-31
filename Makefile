@@ -5,7 +5,7 @@
 	eval-a1-large eval-a1-small eval-a1-all \
 	eval-a2-large eval-a2-small eval-a2-all \
 	eval-a3-large eval-a3-small eval-a3-all \
-	eval-a2-best eval-a3-best \
+	eval-a2-best eval-a3-best eval-a3-best-resume \
 	smoke-a3-reasoning-low smoke-a3-reasoning-high smoke-a3-reasoning \
 	eval-a3-reasoning-low eval-a3-reasoning-high eval-a3-reasoning eval-a3-reasoning-resume \
 	report report-smoke sct-agreement sct-validate clean-runs
@@ -387,6 +387,19 @@ eval-a3-best:
 		--runs-dir $(RUNS_DIR) \
 		--arms A3 \
 		--model-groups best_small
+
+eval-a3-best-resume:
+	@[ -n "$(RESUME)" ] || (echo "Usage: make eval-a3-best-resume RESUME=<run_id>"; exit 1)
+	@echo "Resuming A3 best from run $(RESUME)..."
+	$(PYTHON) -m oncology_rag.cli.eval matrix \
+		--dataset $(DATASET_VALIDATED) \
+		--provider-config $(PROVIDER_CONFIG) \
+		--embeddings-config $(EMBEDDINGS_CONFIG) \
+		--chroma-config $(CHROMA_CONFIG) \
+		--runs-dir $(RUNS_DIR) \
+		--arms A3 \
+		--model-groups best_small \
+		--resume-run-id $(RESUME)
 
 # =============================================================================
 # REASONING EFFORT EXPERIMENTS (A3 qwen3-vl-30b-thinking, low vs high)

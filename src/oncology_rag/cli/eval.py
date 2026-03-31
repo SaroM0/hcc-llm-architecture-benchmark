@@ -91,6 +91,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Experiment ID to resume from (e.g., A1_gpt52).",
     )
     matrix.add_argument(
+        "--resume-run-id",
+        default=None,
+        help="Resume a partial run by its run_id (item-level resume within one experiment).",
+    )
+    matrix.add_argument(
         "--limit",
         type=int,
         default=None,
@@ -156,6 +161,7 @@ def main() -> None:
             models=args.models,
             limit=args.limit,
             resume_from=args.resume_from,
+            resume_run_id=args.resume_run_id,
         )
     else:
         parser.print_help()

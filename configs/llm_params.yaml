@@ -4,10 +4,8 @@
 
 temperature: 0.2
 max_tokens: 16384
-max_completion_tokens: 16384
 
 provider:
   allow_fallbacks: true
   sort: throughput
   quantizations: [fp16, bf16]
-  quantization: fp16

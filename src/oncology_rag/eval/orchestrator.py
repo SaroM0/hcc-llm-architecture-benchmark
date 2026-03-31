@@ -21,6 +21,7 @@ from oncology_rag.eval.runner import (
     _load_dataset,
     _resolve_arm,
     _make_run_id,
+    _load_done_ids,
 )
 from oncology_rag.eval.sct.metrics import (
     SCTScorer,
@@ -183,6 +184,7 @@ class ExperimentOrchestrator:
         self,
         config: ExperimentConfig,
         matrix_config: MatrixConfig,
+        resume_run_id: str | None = None,
     ) -> ExperimentResult:
         """Run a single experiment configuration.
 
@@ -194,7 +196,7 @@ class ExperimentOrchestrator:
             ExperimentResult with paths and metrics.
         """
         experiment_id = f"{config.arm_id}_{config.model_key}"
-        run_id = _make_run_id(experiment_id)
+        run_id = resume_run_id if resume_run_id else _make_run_id(experiment_id)
         run_dir = self._runs_dir / "matrix" / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
         results_root = Path("results")
@@ -228,16 +230,27 @@ class ExperimentOrchestrator:
         all_items = list(_load_dataset(self._dataset_path))
         items = all_items[: self._limit] if self._limit else all_items
 
+        # Resume: load already-processed question_ids to skip
+        done_ids: set[str] = set()
+        if resume_run_id:
+            done_ids = _load_done_ids(results_root, config.arm_id, run_id, [config.model_key])
+            if done_ids:
+                print(f"[resume] Skipping {len(done_ids)} already-processed items.", flush=True)
+
+        file_mode = "a" if resume_run_id and done_ids else "w"
+
         # Run experiment
         started = time.monotonic()
         scorer = SCTScorer()
 
         attempt_logger = AttemptLogger(results_root)
         try:
-            with predictions_path.open("w", encoding="utf-8") as pred_file, \
-                 events_path.open("w", encoding="utf-8") as events_file:
+            with predictions_path.open(file_mode, encoding="utf-8") as pred_file, \
+                 events_path.open(file_mode, encoding="utf-8") as events_file:
 
                 for item in items:
+                    if item.question_id in done_ids:
+                        continue
                     # Build role overrides for this model
                     overrides = {
                         "oneshot": config.model_key,
@@ -366,6 +379,7 @@ class ExperimentOrchestrator:
         self,
         matrix_config: MatrixConfig | None = None,
         resume_from: str | None = None,
+        resume_run_id: str | None = None,
     ) -> list[ExperimentResult]:
         """Run the full experimental matrix.
 
@@ -402,7 +416,7 @@ class ExperimentOrchestrator:
             print(f"[{i}/{total}] Running {exp_config.arm_id} with {exp_config.model_key} ({exp_config.model_class})...")
 
             try:
-                result = self.run_single_experiment(exp_config, config)
+                result = self.run_single_experiment(exp_config, config, resume_run_id=resume_run_id)
                 results.append(result)
                 print(f"  ✓ Completed in {result.latency_seconds:.1f}s | Accuracy: {result.metrics['accuracy']:.2%}")
             except Exception as e:
@@ -482,6 +496,7 @@ def run_full_matrix(
     models: list[str] | None = None,
     limit: int | None = None,
     resume_from: str | None = None,
+    resume_run_id: str | None = None,
 ) -> list[ExperimentResult]:
     """Convenience function to run the full experimental matrix.
 
@@ -517,4 +532,4 @@ def run_full_matrix(
     if models:
         config.models = models
 
-    return orchestrator.run_matrix(config, resume_from=resume_from)
+    return orchestrator.run_matrix(config, resume_from=resume_from, resume_run_id=resume_run_id)
