@@ -177,10 +177,13 @@ _VALID_QUESTION_TYPES = {"diagnosis", "management", "followup"}
 
 
 def load_validated_csv_as_qa_items(path: Path) -> list[QAItem]:
-    """Load validated SCT ground truth CSV and convert to QAItems."""
+    """Load validated SCT ground truth CSV (or TSV) and convert to QAItems."""
     items: list[SCTItem] = []
     with open(path, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
+        first_line = f.readline()
+        delimiter = "\t" if "\t" in first_line else ","
+        f.seek(0)
+        reader = csv.DictReader(f, delimiter=delimiter)
         if reader.fieldnames is None:
             raise ValueError(f"CSV {path} has no header row (file may be empty)")
         missing = _REQUIRED_CSV_HEADERS - set(reader.fieldnames)

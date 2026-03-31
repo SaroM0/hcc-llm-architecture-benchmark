@@ -10,9 +10,10 @@ __pycache__/
 .cache/
 .DS_Store
 
-# Data: ignore source docs and intermediate artifacts; track eval dataset + vector index
+# Data: ignore source docs and intermediate artifacts
 data/raw/
-data/eval/chunks/
+data/eval/
+InstanceRunResults/
 
 # Run artifacts and logs
 runs/

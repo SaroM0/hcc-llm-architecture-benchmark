@@ -73,10 +73,13 @@ def _detect_dataset_format(path: Path) -> str:
         try:
             import csv
             with open(path, "r", encoding="utf-8") as f:
-                reader = csv.reader(f)
+                first_line = f.readline()
+                delimiter = "\t" if "\t" in first_line else ","
+                f.seek(0)
+                reader = csv.reader(f, delimiter=delimiter)
                 header = next(reader, [])
             header_set = {h.strip() for h in header}
-            if {"question_id", "vignette", "hypothesis", "new_information", "validated_answer"}.issubset(header_set):
+            if {"question_id", "hypothesis", "new_information", "validated_answer"}.issubset(header_set):
                 return DATASET_FORMAT_SCT_VALIDATED_CSV
         except OSError:
             pass
