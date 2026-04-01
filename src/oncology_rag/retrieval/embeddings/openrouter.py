@@ -32,9 +32,11 @@ class OpenRouterEmbeddingModel:
         return embeddings
 
     def _embed_batch(self, texts: Sequence[str]) -> list[list[float]]:
-        payload = json.dumps({"model": self._config.model, "input": list(texts)}).encode(
-            "utf-8"
-        )
+        payload = json.dumps({
+            "model": self._config.model,
+            "input": list(texts),
+            "encoding_format": "float",
+        }).encode("utf-8")
         url = f"{self._config.base_url.rstrip('/')}/embeddings"
         headers = {
             "Authorization": f"Bearer {self._config.api_key}",

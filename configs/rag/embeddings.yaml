@@ -1,5 +1,5 @@
 provider: openrouter
-model: BAAI/bge-m3
+model: baai/bge-m3
 batch_size: 64
 
 openrouter:
