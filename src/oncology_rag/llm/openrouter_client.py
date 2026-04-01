@@ -184,9 +184,15 @@ class OpenRouterClient:
                 retries=self._config.retries,
             )
         except RuntimeError as exc:
-            # Some providers reject OpenRouter-specific provider routing options.
-            # Retry once without provider hints to keep runs alive.
-            if "HTTP 400" in str(exc) and "provider" in payload:
+            # Some providers reject OpenRouter-specific provider routing options
+            # with HTTP 400 (bad request) or HTTP 404 (no endpoints for routing
+            # constraints like quantizations). Retry once without provider hints.
+            _exc_str = str(exc)
+            _is_routing_error = "provider" in payload and (
+                "HTTP 400" in _exc_str
+                or ("HTTP 404" in _exc_str and "endpoint" in _exc_str.lower())
+            )
+            if _is_routing_error:
                 fallback_payload = dict(payload)
                 fallback_payload.pop("provider", None)
                 raw = _post_json(

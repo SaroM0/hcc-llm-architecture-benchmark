@@ -7,5 +7,3 @@ max_tokens: 16384
 
 provider:
   allow_fallbacks: true
-  sort: throughput
-  quantizations: [fp16, bf16]
