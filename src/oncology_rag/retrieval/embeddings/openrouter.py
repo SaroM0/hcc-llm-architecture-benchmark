@@ -41,6 +41,8 @@ class OpenRouterEmbeddingModel:
         headers = {
             "Authorization": f"Bearer {self._config.api_key}",
             "Content-Type": "application/json",
+            "HTTP-Referer": "https://hcc-llm-benchmark.local",
+            "X-Title": "HCC LLM Benchmark",
         }
         request = urllib.request.Request(url, data=payload, headers=headers, method="POST")
         last_exc: Exception | None = None
