@@ -5,7 +5,7 @@
 	eval-a1-large eval-a1-small eval-a1-all \
 	eval-a2-large eval-a2-small eval-a2-all \
 	eval-a3-large eval-a3-small eval-a3-all \
-	eval-a2-best eval-a3-best eval-a3-best-resume \
+	eval-a2-best eval-a3-best eval-a2-best-resume eval-a3-best-resume \
 	smoke-a3-reasoning-low smoke-a3-reasoning-high smoke-a3-reasoning \
 	eval-a3-reasoning-low eval-a3-reasoning-high eval-a3-reasoning eval-a3-reasoning-resume \
 	report report-smoke sct-agreement sct-validate clean-runs
@@ -365,7 +365,11 @@ eval-a3-all:
 # BEST-MODEL EXPERIMENTS (A2 × best large, A3 × best small)
 # Primary comparison: architecture effect (A2 vs A3) with pre-selected models.
 # best_large = gpt52, best_small = qwen3_vl_30b (defined in provider config).
+# Auto-resume detects the latest partial run from results/arm=*/run=*.
+# Override with: make eval-a2-best-resume RESUME=<run_id>
 # =============================================================================
+_LATEST_A2_RUN := $(shell ls -1d results/arm=A2/run=* 2>/dev/null | sort -r | head -1 | sed 's|results/arm=A2/run=||')
+_LATEST_A3_RUN := $(shell ls -1d results/arm=A3/run=* 2>/dev/null | sort -r | head -1 | sed 's|results/arm=A3/run=||')
 eval-a2-best:
 	@echo "Running A2 on validated ground truth (best large model: gpt52)..."
 	$(PYTHON) -m oncology_rag.cli.eval matrix \
@@ -388,9 +392,24 @@ eval-a3-best:
 		--arms A3 \
 		--model-groups best_small
 
+eval-a2-best-resume:
+	$(eval _A2_RUN := $(if $(RESUME),$(RESUME),$(_LATEST_A2_RUN)))
+	@[ -n "$(_A2_RUN)" ] || (echo "No partial A2 run found in results/arm=A2/. Run eval-a2-best first."; exit 1)
+	@echo "Resuming A2 best from run $(_A2_RUN)..."
+	$(PYTHON) -m oncology_rag.cli.eval matrix \
+		--dataset $(DATASET_VALIDATED) \
+		--provider-config $(PROVIDER_CONFIG) \
+		--embeddings-config $(EMBEDDINGS_CONFIG) \
+		--chroma-config $(CHROMA_CONFIG) \
+		--runs-dir $(RUNS_DIR) \
+		--arms A2 \
+		--model-groups best_large \
+		--resume-run-id $(_A2_RUN)
+
 eval-a3-best-resume:
-	@[ -n "$(RESUME)" ] || (echo "Usage: make eval-a3-best-resume RESUME=<run_id>"; exit 1)
-	@echo "Resuming A3 best from run $(RESUME)..."
+	$(eval _A3_RUN := $(if $(RESUME),$(RESUME),$(_LATEST_A3_RUN)))
+	@[ -n "$(_A3_RUN)" ] || (echo "No partial A3 run found in results/arm=A3/. Run eval-a3-best first."; exit 1)
+	@echo "Resuming A3 best from run $(_A3_RUN)..."
 	$(PYTHON) -m oncology_rag.cli.eval matrix \
 		--dataset $(DATASET_VALIDATED) \
 		--provider-config $(PROVIDER_CONFIG) \
@@ -399,7 +418,7 @@ eval-a3-best-resume:
 		--runs-dir $(RUNS_DIR) \
 		--arms A3 \
 		--model-groups best_small \
-		--resume-run-id $(RESUME)
+		--resume-run-id $(_A3_RUN)
 
 # =============================================================================
 # REASONING EFFORT EXPERIMENTS (A3 qwen3-vl-30b-thinking, low vs high)
