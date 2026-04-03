@@ -159,6 +159,19 @@ class A2ConsensusRagLarge:
         if not final_answer and supervisor_decision:
             final_answer = supervisor_decision.final_answer or ""
 
+        # Majority-vote fallback: if supervisor failed to produce a parseable score,
+        # use the plurality of the three doctors' last-round scores.
+        if not final_answer:
+            from collections import Counter
+            _valid_scores = {"+2", "+1", "0", "-1", "-2"}
+            _doctor_scores = [
+                out.hypothesis_assessment
+                for _key in ("hepatologist_output", "oncologist_output", "radiologist_output")
+                if (out := final_state.get(_key)) and out.hypothesis_assessment in _valid_scores
+            ]
+            if _doctor_scores:
+                final_answer = Counter(_doctor_scores).most_common(1)[0][0]
+
         all_citations = list(set(final_state.get("all_citations", [])))
         retrieved_evidence = final_state.get("retrieved_evidence", [])
         evidence_used = [

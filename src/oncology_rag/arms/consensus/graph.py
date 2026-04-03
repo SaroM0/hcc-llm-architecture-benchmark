@@ -131,6 +131,7 @@ def create_consensus_graph(
     llm_call_fn: Callable[[str, list[dict[str, str]], dict[str, Any]], dict[str, Any]],
     retrieval_fn: Callable[[str, int, dict[str, Any] | None], Any] | None = None,
     max_rounds: int = 13,
+    min_rounds: int = 2,
     model_key: str = "unknown",
 ) -> tuple[StateGraph, ConsensusGraphBuilder]:
     """Create the consensus graph workflow.
@@ -142,6 +143,7 @@ def create_consensus_graph(
         llm_call_fn: Function to make LLM calls (model_id, messages, params) -> response
         retrieval_fn: Optional function for RAG retrieval (query, top_k, filters) -> results
         max_rounds: Maximum discussion rounds
+        min_rounds: Minimum rounds before supervisor may output TERMINATE (default 2)
         model_key: Model key for event tracking
 
     Returns:
@@ -418,19 +420,34 @@ def create_consensus_graph(
 
         conversation_text = "\n\n".join(_format_message(m) for m in messages)
 
+        _supervisor_round = state.get("round", 0) + 1  # 1-indexed for the prompt
+        _can_terminate = _supervisor_round >= min_rounds
+        if _can_terminate:
+            _terminate_rule = (
+                "If ALL specialists explicitly agree on the exact same Likert score and "
+                "no meaningful uncertainty remains, you may output TERMINATE along with the final score."
+            )
+        else:
+            _terminate_rule = (
+                f"This is round {_supervisor_round} of deliberation. "
+                f"You MUST NOT output TERMINATE until at least round {min_rounds}. "
+                "Challenge the specialists to elaborate their reasoning, surface any hidden disagreements, "
+                "and confirm their scores explicitly before reaching consensus."
+            )
+
         case_prompt = f"""CASE UNDER DISCUSSION:
 {state.get('case', '')}
 
 TASK:
 {state.get('task', '')}
 
-FULL CONVERSATION HISTORY (Round {state.get('round', 1)}):
+FULL CONVERSATION HISTORY (Round {_supervisor_round} of {state.get('max_rounds', max_rounds)}):
 
 {conversation_text}
 
 Please evaluate the specialists' assessments and determine if consensus has been reached.
-If consensus is reached, provide the final Likert score and output TERMINATE.
-If not, identify areas of disagreement and guide further discussion."""
+{_terminate_rule}
+If consensus is not yet reached, identify areas of disagreement and guide further discussion."""
 
         supervisor_messages = [
             {"role": "system", "content": system_prompt},
@@ -494,9 +511,10 @@ If not, identify areas of disagreement and guide further discussion."""
 
     def should_continue(state: ConsensusState) -> Literal["doctors", "end"]:
         """Determine if discussion should continue."""
-        if state.get("consensus", False):
+        current_round = state.get("round", 0)
+        if state.get("consensus", False) and current_round >= min_rounds:
             return "end"
-        if state.get("round", 0) >= state.get("max_rounds", max_rounds):
+        if current_round >= state.get("max_rounds", max_rounds):
             return "end"
         return "doctors"
 

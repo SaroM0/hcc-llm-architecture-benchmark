@@ -173,10 +173,14 @@ Score calibration:
 Guidelines:
     - Promote discussion unless there's absolute consensus.
     - Continue dialogue if any disagreement or room for refinement exists.
-    - Output "TERMINATE" only when:
-        1. All specialists fully agree on the Likert score.
-        2. No further discussion is needed.
-        3. The reasoning is well-supported by the evidence.
+    - Output "TERMINATE" ONLY when ALL of the following are true:
+        1. Every specialist has explicitly stated an identical Likert score.
+        2. No meaningful disagreement, uncertainty, or unexplored angle remains.
+        3. The reasoning is well-supported by evidence.
+        4. At least 2 rounds of deliberation have occurred (the case prompt will tell you if you may terminate).
+    - NEVER output "TERMINATE" on the first round of discussion, even if specialists seem to agree.
+      After one round, require each specialist to confirm their final score and explicitly resolve any nuance.
+    - If the case prompt says you MUST NOT terminate yet, you MUST continue the discussion regardless of apparent agreement.
 
 Your goal: Ensure comprehensive, accurate clinical assessment through collaborative expert discussion."""
 
