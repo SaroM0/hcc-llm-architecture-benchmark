@@ -15,7 +15,9 @@ __pycache__/
 data/raw/
 data/eval/chunks/
 data/eval/*.bak
-InstanceRunResults/
+# InstanceRunResults: track selected subdirs, exclude large/transient artifacts
+InstanceRunResults/results/
+InstanceRunResults/matrix/
 
 # Run artifacts and logs
 runs/

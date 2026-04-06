@@ -12,6 +12,13 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, Mapping
 
 
+def _resolve_env_value(value: Any, env_name: str, default: str = "") -> str:
+    raw = str(value or "").strip()
+    if raw in {"", f"${{{env_name}}}"}:
+        return os.environ.get(env_name, default)
+    return raw
+
+
 @dataclass(frozen=True)
 class OpenRouterConfig:
     base_url: str
@@ -31,8 +38,12 @@ class OpenRouterConfig:
     @classmethod
     def from_mapping(cls, raw: Mapping[str, Any]) -> "OpenRouterConfig":
         api_cfg = raw.get("api", raw)
-        base_url = str(api_cfg.get("base_url") or os.environ.get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"))
-        api_key = str(api_cfg.get("api_key") or os.environ.get("OPENROUTER_API_KEY", ""))
+        base_url = _resolve_env_value(
+            api_cfg.get("base_url"),
+            "OPENROUTER_BASE_URL",
+            "https://openrouter.ai/api/v1",
+        )
+        api_key = _resolve_env_value(api_cfg.get("api_key"), "OPENROUTER_API_KEY")
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY is required")
         timeout_s = float(api_cfg.get("timeout_s", 60.0))

@@ -24,7 +24,7 @@ from oncology_rag.retrieval.retriever import Retriever
 from oncology_rag.retrieval.vectorstores.chroma_store import ChromaStore
 from oncology_rag.eval.sct.metrics import extract_score_from_response, NUMERIC_TO_SCORE
 from oncology_rag.eval.attempts import AttemptLogger, build_attempt_record
-from oncology_rag.eval.artifacts import write_config_snapshot
+from oncology_rag.eval.artifacts import redact_secrets, write_config_snapshot
 
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)\}")
@@ -332,7 +332,7 @@ def run_experiment(
         "dataset_path": str(dataset_path),
     }
     (run_dir / "manifest.json").write_text(
-        json.dumps(manifest, indent=2), encoding="utf-8"
+        json.dumps(redact_secrets(manifest), indent=2), encoding="utf-8"
     )
     config_snapshot = {
         "run_id": run_id,

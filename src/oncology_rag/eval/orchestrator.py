@@ -30,7 +30,7 @@ from oncology_rag.eval.sct.metrics import (
     NUMERIC_TO_SCORE,
 )
 from oncology_rag.eval.attempts import AttemptLogger, build_attempt_record
-from oncology_rag.eval.artifacts import write_config_snapshot
+from oncology_rag.eval.artifacts import redact_secrets, write_config_snapshot
 from oncology_rag.arms.base import ArmOutput
 from oncology_rag.common.types import RunContext
 from oncology_rag.llm.openrouter_client import OpenRouterClient, OpenRouterConfig
@@ -345,7 +345,7 @@ class ExperimentOrchestrator:
             },
         }
         (run_dir / "manifest.json").write_text(
-            json.dumps(manifest, indent=2), encoding="utf-8"
+            json.dumps(redact_secrets(manifest), indent=2), encoding="utf-8"
         )
         config_snapshot = {
             "run_id": run_id,
