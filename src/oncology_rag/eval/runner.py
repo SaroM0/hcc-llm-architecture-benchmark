@@ -11,19 +11,20 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from oncology_rag.arms.a1_oneshot import A1OneShot
-from oncology_rag.arms.a2_oneshot_rag import A2OneShotRag
-from oncology_rag.arms.a3_consensus import A3ConsensusRagLarge
-from oncology_rag.arms.a4_consensus_rag import A4ConsensusRagSmall
+from oncology_rag.arms.a2_consensus import A2ConsensusRagLarge
+from oncology_rag.arms.a3_consensus_rag import A3ConsensusRagSmall
 from oncology_rag.arms.base import Arm, ArmOutput
 from oncology_rag.common.types import QAItem, RunContext
 from oncology_rag.llm.openrouter_client import OpenRouterClient, OpenRouterConfig
+from oncology_rag.llm.params import resolve_llm_params
 from oncology_rag.llm.router import ModelRouter
 from oncology_rag.retrieval.embeddings import build_embedding_model
+from oncology_rag.retrieval.rerank import build_reranker
 from oncology_rag.retrieval.retriever import Retriever
 from oncology_rag.retrieval.vectorstores.chroma_store import ChromaStore
 from oncology_rag.eval.sct.metrics import extract_score_from_response, NUMERIC_TO_SCORE
 from oncology_rag.eval.attempts import AttemptLogger, build_attempt_record
-from oncology_rag.eval.artifacts import write_config_snapshot
+from oncology_rag.eval.artifacts import redact_secrets, write_config_snapshot
 
 
 _ENV_PATTERN = re.compile(r"\$\{([A-Z0-9_]+)\}")
@@ -72,10 +73,13 @@ def _detect_dataset_format(path: Path) -> str:
         try:
             import csv
             with open(path, "r", encoding="utf-8") as f:
-                reader = csv.reader(f)
+                first_line = f.readline()
+                delimiter = "\t" if "\t" in first_line else ","
+                f.seek(0)
+                reader = csv.reader(f, delimiter=delimiter)
                 header = next(reader, [])
             header_set = {h.strip() for h in header}
-            if {"question_id", "vignette", "hypothesis", "new_information", "validated_answer"}.issubset(header_set):
+            if {"question_id", "hypothesis", "new_information", "validated_answer"}.issubset(header_set):
                 return DATASET_FORMAT_SCT_VALIDATED_CSV
         except OSError:
             pass
@@ -137,40 +141,51 @@ def _resolve_arm(
     retriever: Retriever | None = None,
     top_k: int | None = None,
     filters: Mapping[str, Any] | None = None,
+    max_rounds: int | None = None,
 ) -> Arm:
     if arm_id == "A1":
         return A1OneShot(llm_router=llm_router, client=client)
     if arm_id == "A2":
         if retriever is None or top_k is None:
             raise ValueError("A2 requires a retriever and top_k")
-        return A2OneShotRag(
+        return A2ConsensusRagLarge(
             llm_router=llm_router,
             client=client,
             retriever=retriever,
             top_k=top_k,
             filters=filters,
+            max_rounds=max_rounds or 13,
         )
     if arm_id == "A3":
         if retriever is None or top_k is None:
             raise ValueError("A3 requires a retriever and top_k")
-        return A3ConsensusRagLarge(
+        return A3ConsensusRagSmall(
             llm_router=llm_router,
             client=client,
             retriever=retriever,
             top_k=top_k,
             filters=filters,
-        )
-    if arm_id == "A4":
-        if retriever is None or top_k is None:
-            raise ValueError("A4 requires a retriever and top_k")
-        return A4ConsensusRagSmall(
-            llm_router=llm_router,
-            client=client,
-            retriever=retriever,
-            top_k=top_k,
-            filters=filters,
+            max_rounds=max_rounds or 13,
         )
     raise ValueError(f"Unsupported arm: {arm_id}")
+
+
+def _load_done_ids(results_root: Path, arm_id: str, run_id: str, model_keys: list[str]) -> set[str]:
+    """Return question_ids already written in a partial run's attempt files."""
+    done: set[str] = set()
+    for mk in model_keys:
+        attempt_file = results_root / f"arm={arm_id}" / f"run={run_id}" / f"model={mk}.jsonl"
+        if not attempt_file.exists():
+            continue
+        for line in attempt_file.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                done.add(str(json.loads(line)["question_id"]))
+            except (json.JSONDecodeError, KeyError):
+                pass
+    return done
 
 
 def run_experiment(
@@ -179,16 +194,17 @@ def run_experiment(
     dataset_path: Path,
     provider_config_path: Path,
     runs_dir: Path,
+    resume_run_id: str | None = None,
 ) -> Path:
     experiment = _load_yaml(experiment_path)
     provider_cfg = _load_yaml(provider_config_path)
-    run_id = _make_run_id(experiment.get("id", "run"))
+    run_id = resume_run_id if resume_run_id else _make_run_id(experiment.get("id", "run"))
     run_dir = runs_dir / "experiments" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     results_root = Path("results")
 
     role_overrides = experiment.get("model_roles", {}) or {}
-    llm_params = experiment.get("llm_params", {}) or {}
+    llm_params = resolve_llm_params(experiment.get("llm_params"))
     output_schema = experiment.get("output_schema")
 
     llm_router = ModelRouter(provider_cfg)
@@ -199,8 +215,7 @@ def run_experiment(
     retrieval_cfg = experiment.get("retrieval", {}) or {}
     top_k = retrieval_cfg.get("top_k")
     filters = retrieval_cfg.get("filters", {}) or {}
-    # A2, A3, A4 all use RAG now
-    if arm_id in ("A2", "A3", "A4"):
+    if arm_id in ("A2", "A3"):
         embeddings_cfg_path = Path(
             experiment.get("embeddings_config", "configs/rag/embeddings.yaml")
         )
@@ -209,12 +224,15 @@ def run_experiment(
         chroma_cfg = _load_yaml(chroma_cfg_path)
         embedding_model = build_embedding_model(embeddings_cfg)
         store = ChromaStore(chroma_cfg)
-        retriever = Retriever(embedding_model=embedding_model, store=store)
+        retrieval_defaults = _load_yaml(
+            Path(experiment.get("retrieval_config", "configs/rag/retrieval.yaml"))
+        )
         if top_k is None:
-            retrieval_defaults = _load_yaml(
-                Path(experiment.get("retrieval_config", "configs/rag/retrieval.yaml"))
-            )
             top_k = int(retrieval_defaults.get("top_k", 5))
+        reranker = build_reranker(retrieval_defaults)
+        retriever = Retriever(embedding_model=embedding_model, store=store, reranker=reranker)
+    consensus_cfg = experiment.get("consensus", {}) or {}
+    max_rounds = consensus_cfg.get("max_rounds")
     arm = _resolve_arm(
         arm_id,
         llm_router=llm_router,
@@ -222,6 +240,7 @@ def run_experiment(
         retriever=retriever,
         top_k=top_k,
         filters=filters,
+        max_rounds=max_rounds,
     )
 
     model_keys = list(experiment.get("model_keys", []) or [])
@@ -237,16 +256,25 @@ def run_experiment(
     # Detect dataset format from experiment config or auto-detect
     dataset_format = experiment.get("dataset_format")
 
+    # Resume: collect already-processed question_ids to skip
+    done_ids: set[str] = set()
+    if resume_run_id:
+        done_ids = _load_done_ids(results_root, arm_id, run_id, model_keys)
+        if done_ids:
+            print(f"[resume] Skipping {len(done_ids)} already-processed items.", flush=True)
+
+    file_mode = "a" if resume_run_id else "w"
     attempt_logger = AttemptLogger(results_root)
     try:
-        with predictions_path.open("w", encoding="utf-8") as pred_file, events_path.open(
-            "w", encoding="utf-8"
+        with predictions_path.open(file_mode, encoding="utf-8") as pred_file, events_path.open(
+            file_mode, encoding="utf-8"
         ) as events_file:
             for item in _load_dataset(dataset_path, dataset_format):
+                if item.question_id in done_ids:
+                    continue
                 for model_key in model_keys:
                     overrides = dict(role_overrides)
                     overrides["oneshot"] = model_key
-                    overrides["oneshot_rag"] = model_key
                     overrides["consensus_large"] = model_key
                     overrides["consensus_small"] = model_key
                     context = RunContext(
@@ -304,7 +332,7 @@ def run_experiment(
         "dataset_path": str(dataset_path),
     }
     (run_dir / "manifest.json").write_text(
-        json.dumps(manifest, indent=2), encoding="utf-8"
+        json.dumps(redact_secrets(manifest), indent=2), encoding="utf-8"
     )
     config_snapshot = {
         "run_id": run_id,

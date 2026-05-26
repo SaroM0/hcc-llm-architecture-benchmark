@@ -1,5 +1,6 @@
 .env
 .venv/
+.claude/
 __pycache__/
 *.pyc
 *.pyo
@@ -10,9 +11,17 @@ __pycache__/
 .cache/
 .DS_Store
 
-# Data and artifacts
-data/
+# Data: ignore source docs and intermediate artifacts
+data/raw/
+data/eval/chunks/
+data/eval/*.bak
+# InstanceRunResults: track selected subdirs, exclude large/transient artifacts
+InstanceRunResults/results/
+InstanceRunResults/matrix/
+
+# Run artifacts and logs
 runs/
+logs/
 
 # Editor
 .vscode/

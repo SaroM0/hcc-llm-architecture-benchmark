@@ -44,8 +44,9 @@ def extract_score_from_response(response: str) -> int | None:
     if not response:
         return None
 
-    # Clean and normalize
+    # Clean and normalize; strip chain-of-thought blocks from thinking models
     text = response.strip()
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
     # Try to find score at the very beginning
     patterns = [

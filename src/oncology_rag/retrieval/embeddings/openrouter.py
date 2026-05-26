@@ -32,13 +32,17 @@ class OpenRouterEmbeddingModel:
         return embeddings
 
     def _embed_batch(self, texts: Sequence[str]) -> list[list[float]]:
-        payload = json.dumps({"model": self._config.model, "input": list(texts)}).encode(
-            "utf-8"
-        )
+        payload = json.dumps({
+            "model": self._config.model,
+            "input": list(texts),
+            "encoding_format": "float",
+        }).encode("utf-8")
         url = f"{self._config.base_url.rstrip('/')}/embeddings"
         headers = {
             "Authorization": f"Bearer {self._config.api_key}",
             "Content-Type": "application/json",
+            "HTTP-Referer": "https://hcc-llm-benchmark.local",
+            "X-Title": "HCC LLM Benchmark",
         }
         request = urllib.request.Request(url, data=payload, headers=headers, method="POST")
         last_exc: Exception | None = None
@@ -48,7 +52,7 @@ class OpenRouterEmbeddingModel:
                     raw = json.loads(response.read().decode("utf-8"))
                 last_exc = None
                 break
-            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+            except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
                 last_exc = exc
                 time.sleep(2**attempt)
         if last_exc is not None:

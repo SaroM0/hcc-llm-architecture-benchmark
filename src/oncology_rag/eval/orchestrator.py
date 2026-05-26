@@ -2,7 +2,7 @@
 
 This module orchestrates the complete experimental design:
 - 10 models (5 large + 5 small)
-- 4 arms (A1, A2, A3, A4)
+- 3 arms (A1, A2, A3)
 - 200 SCT items
 
 Total: 40 model-architecture configurations, 8000 evaluations.
@@ -21,6 +21,7 @@ from oncology_rag.eval.runner import (
     _load_dataset,
     _resolve_arm,
     _make_run_id,
+    _load_done_ids,
 )
 from oncology_rag.eval.sct.metrics import (
     SCTScorer,
@@ -29,12 +30,14 @@ from oncology_rag.eval.sct.metrics import (
     NUMERIC_TO_SCORE,
 )
 from oncology_rag.eval.attempts import AttemptLogger, build_attempt_record
-from oncology_rag.eval.artifacts import write_config_snapshot
+from oncology_rag.eval.artifacts import redact_secrets, write_config_snapshot
 from oncology_rag.arms.base import ArmOutput
 from oncology_rag.common.types import RunContext
 from oncology_rag.llm.openrouter_client import OpenRouterClient, OpenRouterConfig
+from oncology_rag.llm.params import resolve_llm_params
 from oncology_rag.llm.router import ModelRouter
 from oncology_rag.retrieval.embeddings import build_embedding_model
+from oncology_rag.retrieval.rerank import build_reranker
 from oncology_rag.retrieval.retriever import Retriever
 from oncology_rag.retrieval.vectorstores.chroma_store import ChromaStore
 
@@ -52,26 +55,17 @@ class ExperimentConfig:
 class MatrixConfig:
     """Configuration for the full experimental matrix."""
 
-    arms: list[str] = field(default_factory=lambda: ["A1", "A2", "A3", "A4"])
+    arms: list[str] = field(default_factory=lambda: ["A1", "A2", "A3"])
     model_groups: list[str] = field(default_factory=lambda: ["large", "small"])
+    models: list[str] | None = None
     consensus_config: dict[str, Any] = field(default_factory=lambda: {
-        "num_doctors": 4,
-        "max_rounds": 3,
-        "consensus_threshold": 0.75,
+        "max_rounds": 13,
     })
     retrieval_config: dict[str, Any] = field(default_factory=lambda: {
         "top_k": 5,
         "filters": {},
     })
-    llm_params: dict[str, Any] = field(default_factory=lambda: {
-        "temperature": 0.3,
-        "max_tokens": 512,
-        "max_completion_tokens": 512,
-        "provider": {
-            "allow_fallbacks": False,
-            "quantization": "fp16",
-        },
-    })
+    llm_params: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -101,18 +95,33 @@ def build_experiment_matrix(
     """
     experiments = []
     groups = provider_config.get("groups", {})
+    models_config = provider_config.get("models", {})
 
-    for arm_id in matrix_config.arms:
-        for group_name in matrix_config.model_groups:
-            model_keys = groups.get(group_name, [])
+    if matrix_config.models is not None:
+        model_keys = matrix_config.models
+        for arm_id in matrix_config.arms:
             for model_key in model_keys:
+                spec = models_config.get(model_key, {})
+                model_class = spec.get("class", "unknown")
                 experiments.append(
                     ExperimentConfig(
                         arm_id=arm_id,
                         model_key=model_key,
-                        model_class=group_name,
+                        model_class=model_class,
                     )
                 )
+    else:
+        for arm_id in matrix_config.arms:
+            for group_name in matrix_config.model_groups:
+                keys = groups.get(group_name, [])
+                for model_key in keys:
+                    experiments.append(
+                        ExperimentConfig(
+                            arm_id=arm_id,
+                            model_key=model_key,
+                            model_class=group_name,
+                        )
+                    )
 
     return experiments
 
@@ -127,6 +136,7 @@ class ExperimentOrchestrator:
         runs_dir: Path,
         embeddings_config_path: Path | None = None,
         chroma_config_path: Path | None = None,
+        retrieval_config_path: Path | None = None,
         limit: int | None = None,
     ) -> None:
         self._provider_config_path = provider_config_path
@@ -134,6 +144,9 @@ class ExperimentOrchestrator:
         self._runs_dir = runs_dir
         self._embeddings_config_path = embeddings_config_path
         self._chroma_config_path = chroma_config_path
+        self._retrieval_config_path = retrieval_config_path or Path(
+            "configs/rag/retrieval.yaml"
+        )
         self._limit = limit
 
         # Load configs
@@ -143,7 +156,7 @@ class ExperimentOrchestrator:
             OpenRouterConfig.from_mapping(self._provider_config)
         )
 
-        # Lazy-load retriever (only for A2/A4)
+        # Lazy-load retriever (for A2, A3)
         self._retriever: Retriever | None = None
 
     def _ensure_retriever(self) -> Retriever:
@@ -158,15 +171,20 @@ class ExperimentOrchestrator:
 
         embeddings_cfg = _load_yaml(self._embeddings_config_path)
         chroma_cfg = _load_yaml(self._chroma_config_path)
+        retrieval_cfg = _load_yaml(self._retrieval_config_path)
         embedding_model = build_embedding_model(embeddings_cfg)
         store = ChromaStore(chroma_cfg)
-        self._retriever = Retriever(embedding_model=embedding_model, store=store)
+        reranker = build_reranker(retrieval_cfg)
+        self._retriever = Retriever(
+            embedding_model=embedding_model, store=store, reranker=reranker
+        )
         return self._retriever
 
     def run_single_experiment(
         self,
         config: ExperimentConfig,
         matrix_config: MatrixConfig,
+        resume_run_id: str | None = None,
     ) -> ExperimentResult:
         """Run a single experiment configuration.
 
@@ -178,7 +196,7 @@ class ExperimentOrchestrator:
             ExperimentResult with paths and metrics.
         """
         experiment_id = f"{config.arm_id}_{config.model_key}"
-        run_id = _make_run_id(experiment_id)
+        run_id = resume_run_id if resume_run_id else _make_run_id(experiment_id)
         run_dir = self._runs_dir / "matrix" / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
         results_root = Path("results")
@@ -190,11 +208,10 @@ class ExperimentOrchestrator:
         retriever = None
         top_k = matrix_config.retrieval_config.get("top_k", 5)
         filters = matrix_config.retrieval_config.get("filters", {})
-        # A2, A3, A4 all use RAG now
-        if config.arm_id in ("A2", "A3", "A4"):
+        if config.arm_id in ("A2", "A3"):
             retriever = self._ensure_retriever()
 
-        # Resolve arm
+        max_rounds = matrix_config.consensus_config.get("max_rounds")
         arm = _resolve_arm(
             config.arm_id,
             llm_router=self._llm_router,
@@ -202,6 +219,7 @@ class ExperimentOrchestrator:
             retriever=retriever,
             top_k=top_k,
             filters=filters,
+            max_rounds=max_rounds,
         )
 
         # Prepare output files
@@ -212,30 +230,41 @@ class ExperimentOrchestrator:
         all_items = list(_load_dataset(self._dataset_path))
         items = all_items[: self._limit] if self._limit else all_items
 
+        # Resume: load already-processed question_ids to skip
+        done_ids: set[str] = set()
+        if resume_run_id:
+            done_ids = _load_done_ids(results_root, config.arm_id, run_id, [config.model_key])
+            if done_ids:
+                print(f"[resume] Skipping {len(done_ids)} already-processed items.", flush=True)
+
+        file_mode = "a" if resume_run_id and done_ids else "w"
+
         # Run experiment
         started = time.monotonic()
         scorer = SCTScorer()
 
         attempt_logger = AttemptLogger(results_root)
         try:
-            with predictions_path.open("w", encoding="utf-8") as pred_file, \
-                 events_path.open("w", encoding="utf-8") as events_file:
+            with predictions_path.open(file_mode, encoding="utf-8") as pred_file, \
+                 events_path.open(file_mode, encoding="utf-8") as events_file:
 
                 for item in items:
+                    if item.question_id in done_ids:
+                        continue
                     # Build role overrides for this model
                     overrides = {
                         "oneshot": config.model_key,
-                        "oneshot_rag": config.model_key,
-                        "consensus": config.model_key,
-                        "consensus_rag": config.model_key,
+                        "consensus_large": config.model_key,
+                        "consensus_small": config.model_key,
                     }
 
+                    resolved_params = resolve_llm_params(matrix_config.llm_params)
                     context = RunContext(
                         run_id=run_id,
                         experiment_id=experiment_id,
                         role_overrides=overrides,
                         output_schema=None,
-                        llm_params=matrix_config.llm_params,
+                        llm_params=resolved_params,
                     )
 
                     output: ArmOutput = arm.run_one(context, item)
@@ -316,7 +345,7 @@ class ExperimentOrchestrator:
             },
         }
         (run_dir / "manifest.json").write_text(
-            json.dumps(manifest, indent=2), encoding="utf-8"
+            json.dumps(redact_secrets(manifest), indent=2), encoding="utf-8"
         )
         config_snapshot = {
             "run_id": run_id,
@@ -350,6 +379,7 @@ class ExperimentOrchestrator:
         self,
         matrix_config: MatrixConfig | None = None,
         resume_from: str | None = None,
+        resume_run_id: str | None = None,
     ) -> list[ExperimentResult]:
         """Run the full experimental matrix.
 
@@ -376,14 +406,17 @@ class ExperimentOrchestrator:
 
         print(f"Running experimental matrix: {total} configurations")
         print(f"  Arms: {config.arms}")
-        print(f"  Model groups: {config.model_groups}")
+        if config.models:
+            print(f"  Models: {config.models}")
+        else:
+            print(f"  Model groups: {config.model_groups}")
         print()
 
         for i, exp_config in enumerate(experiments[start_idx:], start=start_idx + 1):
             print(f"[{i}/{total}] Running {exp_config.arm_id} with {exp_config.model_key} ({exp_config.model_class})...")
 
             try:
-                result = self.run_single_experiment(exp_config, config)
+                result = self.run_single_experiment(exp_config, config, resume_run_id=resume_run_id)
                 results.append(result)
                 print(f"  ✓ Completed in {result.latency_seconds:.1f}s | Accuracy: {result.metrics['accuracy']:.2%}")
             except Exception as e:
@@ -410,6 +443,7 @@ class ExperimentOrchestrator:
             "config": {
                 "arms": config.arms,
                 "model_groups": config.model_groups,
+                "models": config.models,
             },
             "results": [
                 {
@@ -459,7 +493,10 @@ def run_full_matrix(
     chroma_config_path: Path | None = None,
     arms: list[str] | None = None,
     model_groups: list[str] | None = None,
+    models: list[str] | None = None,
     limit: int | None = None,
+    resume_from: str | None = None,
+    resume_run_id: str | None = None,
 ) -> list[ExperimentResult]:
     """Convenience function to run the full experimental matrix.
 
@@ -471,7 +508,9 @@ def run_full_matrix(
         chroma_config_path: Path to ChromaDB config (for RAG).
         arms: List of arms to run (default: all).
         model_groups: List of model groups to run (default: all).
+        models: Optional list of specific model keys (overrides model_groups).
         limit: Optional limit on number of items to evaluate.
+        resume_from: Experiment ID to resume from (e.g., "A1_gpt52").
 
     Returns:
         List of ExperimentResult for all configurations.
@@ -490,5 +529,7 @@ def run_full_matrix(
         config.arms = arms
     if model_groups:
         config.model_groups = model_groups
+    if models:
+        config.models = models
 
-    return orchestrator.run_matrix(config)
+    return orchestrator.run_matrix(config, resume_from=resume_from, resume_run_id=resume_run_id)

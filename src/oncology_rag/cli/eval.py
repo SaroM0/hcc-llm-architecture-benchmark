@@ -34,6 +34,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="runs",
         help="Directory for run artifacts.",
     )
+    single.add_argument(
+        "--resume-run-id",
+        default=None,
+        help="Resume a partial run by its run_id (e.g. 20260322_205349_A3_qwen_reasoning_low).",
+    )
 
     # Full matrix experiment
     matrix = subparsers.add_parser("matrix", help="Run full experimental matrix")
@@ -66,7 +71,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--arms",
         nargs="+",
         default=None,
-        help="Arms to run (default: A1 A2 A3 A4).",
+        help="Arms to run (default: A1 A2 A3).",
     )
     matrix.add_argument(
         "--model-groups",
@@ -75,9 +80,20 @@ def build_parser() -> argparse.ArgumentParser:
         help="Model groups to run (default: large small).",
     )
     matrix.add_argument(
+        "--models",
+        nargs="+",
+        default=None,
+        help="Specific model keys to run (overrides --model-groups).",
+    )
+    matrix.add_argument(
         "--resume-from",
         default=None,
         help="Experiment ID to resume from (e.g., A1_gpt52).",
+    )
+    matrix.add_argument(
+        "--resume-run-id",
+        default=None,
+        help="Resume a partial run by its run_id (item-level resume within one experiment).",
     )
     matrix.add_argument(
         "--limit",
@@ -129,6 +145,7 @@ def main() -> None:
             dataset_path=Path(args.dataset),
             provider_config_path=Path(args.provider_config),
             runs_dir=Path(args.runs_dir),
+            resume_run_id=args.resume_run_id,
         )
     elif args.command == "matrix":
         from oncology_rag.eval.orchestrator import run_full_matrix
@@ -141,7 +158,10 @@ def main() -> None:
             chroma_config_path=Path(args.chroma_config),
             arms=args.arms,
             model_groups=args.model_groups,
+            models=args.models,
             limit=args.limit,
+            resume_from=args.resume_from,
+            resume_run_id=args.resume_run_id,
         )
     else:
         parser.print_help()

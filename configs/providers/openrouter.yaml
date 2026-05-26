@@ -1,7 +1,7 @@
 api:
   base_url: ${OPENROUTER_BASE_URL}
   api_key: ${OPENROUTER_API_KEY}
-  timeout_s: 120
+  timeout_s: 3600
   retries: 3
   headers: {}
 
@@ -81,9 +81,9 @@ models:
 # MODEL GROUPS FOR EXPERIMENTS
 # =============================================================================
 groups:
-  large: [gpt52, gemini3pro, mistral_large_2512, glm47, claude_opus_4]
+  large: [gpt52, mistral_large_2512, glm47, claude_opus_4]
   small: [qwen3_vl_30b, gemma3_27b, ministral_14b, nemotron_3_nano, gpt_oss_20b]
-  all: [gpt52, gemini3pro, mistral_large_2512, glm47, claude_opus_4, qwen3_vl_30b, gemma3_27b, ministral_14b, nemotron_3_nano, gpt_oss_20b]
+  all: [gpt52, mistral_large_2512, glm47, claude_opus_4, qwen3_vl_30b, gemma3_27b, ministral_14b, nemotron_3_nano, gpt_oss_20b]
   # Best performing models from each class
   best_large: [gpt52]
   best_small: [qwen3_vl_30b]
@@ -95,13 +95,10 @@ roles:
   # A1: Oneshot (no RAG)
   oneshot: qwen3_vl_30b
 
-  # A2: Oneshot RAG (generic)
-  oneshot_rag: qwen3_vl_30b
-
-  # A3: Multi-agent Consensus RAG for large models
+  # A2: Multi-agent Consensus RAG for large models
   consensus_large: gpt52
 
-  # A4: Multi-agent Consensus RAG for small models
+  # A3: Multi-agent Consensus RAG for small models
   consensus_small: qwen3_vl_30b
 
   # Evaluation

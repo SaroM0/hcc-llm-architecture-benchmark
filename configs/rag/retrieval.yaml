@@ -1,5 +1,8 @@
 top_k: 6
 filters: {}
 rerank:
-  enabled: false
-  model: null
+  enabled: true
+  model: bm25
+  fetch_k: 3   # retrieve top_k * fetch_k candidates, rerank, keep top_k
+  k1: 1.5      # BM25 term-frequency saturation
+  b: 0.75      # BM25 length normalisation

@@ -1,10 +1,13 @@
 .PHONY: help install check-env format lint test ingest \
-	smoke smoke-a1 smoke-a2 smoke-a3 smoke-a4 \
+	validate-consensus \
+	smoke smoke-a1 smoke-a2 smoke-a3 smoke-models \
 	test-mini test-small test-medium test-full \
 	eval-a1-large eval-a1-small eval-a1-all \
 	eval-a2-large eval-a2-small eval-a2-all \
 	eval-a3-large eval-a3-small eval-a3-all \
-	eval-a4-large eval-a4-small eval-a4-all eval-a4-qwen \
+	eval-a2-best eval-a3-best eval-a2-best-resume eval-a3-best-resume \
+	smoke-a3-reasoning-low smoke-a3-reasoning-high smoke-a3-reasoning \
+	eval-a3-reasoning-low eval-a3-reasoning-high eval-a3-reasoning eval-a3-reasoning-resume \
 	report report-smoke sct-agreement sct-validate clean-runs
 
 # =============================================================================
@@ -20,7 +23,7 @@ endif
 # =============================================================================
 PYTHON := PYTHONPATH=src python3
 DATASET := data/eval/sct_items_hepa_icca.json
-DATASET_SMOKE := data/eval/sct_items_hepa_icca_smoke.json
+DATASET_SMOKE := $(firstword $(wildcard data/eval/sct_items_hepa_icca_smoke.json) data/eval/sct_validated_ground_truth.csv)
 DATASET_VALIDATED := data/eval/sct_validated_ground_truth.csv
 PROVIDER_CONFIG := configs/providers/openrouter.yaml
 EMBEDDINGS_CONFIG := configs/rag/embeddings.yaml
@@ -29,6 +32,10 @@ RUNS_DIR := runs
 
 # Default model for single-model tests (first small model)
 DEFAULT_SMALL_MODEL := qwen3_vl_30b
+
+# Reasoning effort experiment configs
+EXPERIMENT_A3_LOW  := configs/experiments/a3_qwen_reasoning_low.yaml
+EXPERIMENT_A3_HIGH := configs/experiments/a3_qwen_reasoning_high.yaml
 
 # =============================================================================
 # HELP
@@ -46,14 +53,16 @@ help:
 	@echo "  format        Format code"
 	@echo "  lint          Run linters"
 	@echo "  test          Run unit tests"
+	@echo "  validate-consensus  Validate A2/A3 consensus (mocked, no API)"
 	@echo "  ingest        Ingest documents into vector store"
 	@echo ""
 	@echo "Smoke Tests (2 items, quick validation):"
-	@echo "  smoke         Run smoke tests for all arms (A1-A4)"
+	@echo "  smoke         Run smoke tests for all arms (A1-A3)"
+	@echo "  smoke         Run smoke tests for all arms (A1-A3)"
 	@echo "  smoke-a1      Smoke test for A1 (oneshot)"
-	@echo "  smoke-a2      Smoke test for A2 (oneshot + RAG)"
-	@echo "  smoke-a3      Smoke test for A3 (consensus)"
-	@echo "  smoke-a4      Smoke test for A4 (consensus + RAG)"
+	@echo "  smoke-a2      Smoke test for A2 (consensus large)"
+	@echo "  smoke-a3      Smoke test for A3 (consensus small)"
+	@echo "  smoke-models  Test each model with 1 item per arm (consistency check)"
 	@echo ""
 	@echo "Evaluation Tests (small models only):"
 	@echo "  test-mini     Run with 5 items, 1 small model, all arms"
@@ -71,10 +80,6 @@ help:
 	@echo "  eval-a3-large Run A3 on validated ground truth (large models)"
 	@echo "  eval-a3-small Run A3 on validated ground truth (small models)"
 	@echo "  eval-a3-all   Run A3 on validated ground truth (large + small)"
-	@echo "  eval-a4-large Run A4 on validated ground truth (large models)"
-	@echo "  eval-a4-small Run A4 on validated ground truth (small models)"
-	@echo "  eval-a4-qwen  Run A4 on validated ground truth (qwen3_vl_30b only)"
-	@echo "  eval-a4-all   Run A4 on validated ground truth (large + small)"
 	@echo ""
 	@echo "Reports:"
 	@echo "  report        Generate reports from latest runs"
@@ -85,6 +90,14 @@ help:
 	@echo "                Usage: make sct-agreement RESPONSES_CSV=path/to/responses.csv"
 	@echo "  sct-validate  Generate validated ground truth from expert responses"
 	@echo "                Usage: make sct-validate RESPONSES_CSV=path/to/responses.csv"
+	@echo ""
+	@echo "Reasoning Effort (A3 qwen, parallel):"
+	@echo "  smoke-a3-reasoning-low   Smoke test A3 qwen reasoning=low (smoke dataset)"
+	@echo "  smoke-a3-reasoning-high  Smoke test A3 qwen reasoning=high (smoke dataset)"
+	@echo "  smoke-a3-reasoning       Smoke both reasoning variants sequentially"
+	@echo "  eval-a3-reasoning-low    Full eval A3 qwen reasoning=low (validated GT)"
+	@echo "  eval-a3-reasoning-high   Full eval A3 qwen reasoning=high (validated GT)"
+	@echo "  eval-a3-reasoning        Run low AND high in PARALLEL (logs/ dir)"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  clean-runs    Remove all run artifacts"
@@ -132,6 +145,10 @@ test:
 	@echo "Running unit tests..."
 	$(PYTHON) -m pytest tests/ -v
 
+validate-consensus:
+	@echo "Validating A2/A3 consensus (mocked LLM, no API)..."
+	$(PYTHON) scripts/validate_consensus.py
+
 ingest:
 	@echo "Ingesting documents into vector store..."
 	$(PYTHON) -m oncology_rag.cli.ingest --config configs/default.yaml
@@ -139,7 +156,7 @@ ingest:
 # =============================================================================
 # SMOKE TESTS (2 items each, quick validation)
 # =============================================================================
-smoke: smoke-a1 smoke-a2 smoke-a3 smoke-a4
+smoke: smoke-a1 smoke-a2 smoke-a3
 	@echo ""
 	@echo "All smoke tests completed."
 
@@ -154,7 +171,7 @@ smoke-a1:
 		--limit 2
 
 smoke-a2:
-	@echo "Running smoke test for A2 (oneshot + RAG)..."
+	@echo "Running smoke test for A2 (consensus large)..."
 	$(PYTHON) -m oncology_rag.cli.eval matrix \
 		--dataset $(DATASET_SMOKE) \
 		--provider-config $(PROVIDER_CONFIG) \
@@ -166,26 +183,27 @@ smoke-a2:
 		--limit 2
 
 smoke-a3:
-	@echo "Running smoke test for A3 (consensus)..."
-	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET_SMOKE) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A3 \
-		--model-groups small \
-		--limit 2
-
-smoke-a4:
-	@echo "Running smoke test for A4 (consensus + RAG)..."
+	@echo "Running smoke test for A3 (consensus small)..."
 	$(PYTHON) -m oncology_rag.cli.eval matrix \
 		--dataset $(DATASET_SMOKE) \
 		--provider-config $(PROVIDER_CONFIG) \
 		--embeddings-config $(EMBEDDINGS_CONFIG) \
 		--chroma-config $(CHROMA_CONFIG) \
 		--runs-dir $(RUNS_DIR) \
-		--arms A4 \
+		--arms A3 \
 		--model-groups small \
 		--limit 2
+
+smoke-models:
+	@echo "Testing each model with 1 item per arm (A1, A2, A3)..."
+	$(PYTHON) scripts/test_models_consistency.py \
+		--dataset $(DATASET_SMOKE) \
+		--provider-config $(PROVIDER_CONFIG) \
+		--embeddings-config $(EMBEDDINGS_CONFIG) \
+		--chroma-config $(CHROMA_CONFIG) \
+		--runs-dir $(RUNS_DIR)
+	@echo ""
+	@echo "Model-by-model consistency check completed."
 
 # =============================================================================
 # EVALUATION TESTS (progressive scale, small models)
@@ -198,7 +216,7 @@ test-mini:
 		--embeddings-config $(EMBEDDINGS_CONFIG) \
 		--chroma-config $(CHROMA_CONFIG) \
 		--runs-dir $(RUNS_DIR) \
-		--arms A1 A2 A3 A4 \
+		--arms A1 A2 A3 \
 		--model-groups small \
 		--limit 5
 
@@ -210,7 +228,7 @@ test-small:
 		--embeddings-config $(EMBEDDINGS_CONFIG) \
 		--chroma-config $(CHROMA_CONFIG) \
 		--runs-dir $(RUNS_DIR) \
-		--arms A1 A2 A3 A4 \
+		--arms A1 A2 A3 \
 		--model-groups small \
 		--limit 50
 
@@ -222,7 +240,7 @@ test-medium:
 		--embeddings-config $(EMBEDDINGS_CONFIG) \
 		--chroma-config $(CHROMA_CONFIG) \
 		--runs-dir $(RUNS_DIR) \
-		--arms A1 A2 A3 A4 \
+		--arms A1 A2 A3 \
 		--model-groups small \
 		--limit 100
 
@@ -238,7 +256,7 @@ test-full:
 		--embeddings-config $(EMBEDDINGS_CONFIG) \
 		--chroma-config $(CHROMA_CONFIG) \
 		--runs-dir $(RUNS_DIR) \
-		--arms A1 A2 A3 A4 \
+		--arms A1 A2 A3 \
 		--model-groups large small
 
 # =============================================================================
@@ -343,46 +361,154 @@ eval-a3-all:
 		--arms A3 \
 		--model-groups large small
 
-eval-a4-large:
-	@echo "Running A4 on validated ground truth (large models)..."
+# =============================================================================
+# BEST-MODEL EXPERIMENTS (A2 × best large, A3 × best small)
+# Primary comparison: architecture effect (A2 vs A3) with pre-selected models.
+# best_large = gpt52, best_small = qwen3_vl_30b (defined in provider config).
+# Auto-resume detects the latest partial run from results/arm=*/run=*.
+# Override with: make eval-a2-best-resume RESUME=<run_id>
+# =============================================================================
+_LATEST_A2_RUN := $(shell ls -1d results/arm=A2/run=* 2>/dev/null | sort -r | head -1 | sed 's|results/arm=A2/run=||')
+_LATEST_A3_RUN := $(shell ls -1d results/arm=A3/run=* 2>/dev/null | sort -r | head -1 | sed 's|results/arm=A3/run=||')
+eval-a2-best:
+	@echo "Running A2 on validated ground truth (best large model: gpt52)..."
 	$(PYTHON) -m oncology_rag.cli.eval matrix \
 		--dataset $(DATASET_VALIDATED) \
 		--provider-config $(PROVIDER_CONFIG) \
 		--embeddings-config $(EMBEDDINGS_CONFIG) \
 		--chroma-config $(CHROMA_CONFIG) \
 		--runs-dir $(RUNS_DIR) \
-		--arms A4 \
-		--model-groups large
+		--arms A2 \
+		--model-groups best_large
 
-eval-a4-small:
-	@echo "Running A4 on validated ground truth (small models)..."
+eval-a3-best:
+	@echo "Running A3 on validated ground truth (best small model: qwen3_vl_30b)..."
 	$(PYTHON) -m oncology_rag.cli.eval matrix \
 		--dataset $(DATASET_VALIDATED) \
 		--provider-config $(PROVIDER_CONFIG) \
 		--embeddings-config $(EMBEDDINGS_CONFIG) \
 		--chroma-config $(CHROMA_CONFIG) \
 		--runs-dir $(RUNS_DIR) \
-		--arms A4 \
-		--model-groups small
+		--arms A3 \
+		--model-groups best_small
 
-eval-a4-all:
-	@echo "Running A4 on validated ground truth (large + small models)..."
+eval-a2-best-resume:
+	$(eval _A2_RUN := $(if $(RESUME),$(RESUME),$(_LATEST_A2_RUN)))
+	@[ -n "$(_A2_RUN)" ] || (echo "No partial A2 run found in results/arm=A2/. Run eval-a2-best first."; exit 1)
+	@echo "Resuming A2 best from run $(_A2_RUN)..."
 	$(PYTHON) -m oncology_rag.cli.eval matrix \
 		--dataset $(DATASET_VALIDATED) \
 		--provider-config $(PROVIDER_CONFIG) \
 		--embeddings-config $(EMBEDDINGS_CONFIG) \
 		--chroma-config $(CHROMA_CONFIG) \
 		--runs-dir $(RUNS_DIR) \
-		--arms A4 \
-		--model-groups large small
+		--arms A2 \
+		--model-groups best_large \
+		--resume-run-id $(_A2_RUN)
 
-eval-a4-qwen:
-	@echo "Running A4 on validated ground truth (qwen3_vl_30b only)..."
+eval-a3-best-resume:
+	$(eval _A3_RUN := $(if $(RESUME),$(RESUME),$(_LATEST_A3_RUN)))
+	@[ -n "$(_A3_RUN)" ] || (echo "No partial A3 run found in results/arm=A3/. Run eval-a3-best first."; exit 1)
+	@echo "Resuming A3 best from run $(_A3_RUN)..."
+	$(PYTHON) -m oncology_rag.cli.eval matrix \
+		--dataset $(DATASET_VALIDATED) \
+		--provider-config $(PROVIDER_CONFIG) \
+		--embeddings-config $(EMBEDDINGS_CONFIG) \
+		--chroma-config $(CHROMA_CONFIG) \
+		--runs-dir $(RUNS_DIR) \
+		--arms A3 \
+		--model-groups best_small \
+		--resume-run-id $(_A3_RUN)
+
+# =============================================================================
+# REASONING EFFORT EXPERIMENTS (A3 qwen3-vl-30b-thinking, low vs high)
+# Uses eval single to carry per-experiment llm_params (reasoning.effort).
+# eval-a3-reasoning runs both in parallel and waits for both to finish.
+# Logs are written to logs/a3_reasoning_low.log and logs/a3_reasoning_high.log.
+# =============================================================================
+smoke-a3-reasoning-low:
+	@echo "Smoke: A3 qwen reasoning=low..."
 	$(PYTHON) -m oncology_rag.cli.eval single \
-		--experiment configs/experiments/a4_consensus_small.yaml \
-		--dataset $(DATASET_VALIDATED) \
+		--experiment $(EXPERIMENT_A3_LOW) \
+		--dataset $(DATASET_SMOKE) \
 		--provider-config $(PROVIDER_CONFIG) \
 		--runs-dir $(RUNS_DIR)
+
+smoke-a3-reasoning-high:
+	@echo "Smoke: A3 qwen reasoning=high..."
+	$(PYTHON) -m oncology_rag.cli.eval single \
+		--experiment $(EXPERIMENT_A3_HIGH) \
+		--dataset $(DATASET_SMOKE) \
+		--provider-config $(PROVIDER_CONFIG) \
+		--runs-dir $(RUNS_DIR)
+
+smoke-a3-reasoning: smoke-a3-reasoning-low smoke-a3-reasoning-high
+
+eval-a3-reasoning-low:
+	@echo "Running A3 qwen reasoning=low on validated ground truth..."
+	@mkdir -p logs
+	$(PYTHON) -m oncology_rag.cli.eval single \
+		--experiment $(EXPERIMENT_A3_LOW) \
+		--dataset $(DATASET_VALIDATED) \
+		--provider-config $(PROVIDER_CONFIG) \
+		--runs-dir $(RUNS_DIR) 2>&1 | tee logs/a3_reasoning_low.log
+
+eval-a3-reasoning-high:
+	@echo "Running A3 qwen reasoning=high on validated ground truth..."
+	@mkdir -p logs
+	$(PYTHON) -m oncology_rag.cli.eval single \
+		--experiment $(EXPERIMENT_A3_HIGH) \
+		--dataset $(DATASET_VALIDATED) \
+		--provider-config $(PROVIDER_CONFIG) \
+		--runs-dir $(RUNS_DIR) 2>&1 | tee logs/a3_reasoning_high.log
+
+eval-a3-reasoning:
+	@echo "Running A3 qwen reasoning=low AND reasoning=high in parallel..."
+	@echo "Logs: logs/a3_reasoning_low.log | logs/a3_reasoning_high.log"
+	@mkdir -p logs
+	@$(PYTHON) -m oncology_rag.cli.eval single \
+		--experiment $(EXPERIMENT_A3_LOW) \
+		--dataset $(DATASET_VALIDATED) \
+		--provider-config $(PROVIDER_CONFIG) \
+		--runs-dir $(RUNS_DIR) 2>&1 | tee logs/a3_reasoning_low.log & \
+	$(PYTHON) -m oncology_rag.cli.eval single \
+		--experiment $(EXPERIMENT_A3_HIGH) \
+		--dataset $(DATASET_VALIDATED) \
+		--provider-config $(PROVIDER_CONFIG) \
+		--runs-dir $(RUNS_DIR) 2>&1 | tee logs/a3_reasoning_high.log & \
+	wait
+	@echo "Both reasoning experiments completed."
+
+# Resume partial runs. Usage:
+#   make eval-a3-reasoning-resume \
+#     RESUME_LOW=20260322_205349_A3_qwen_reasoning_low \
+#     RESUME_HIGH=20260322_205349_A3_qwen_reasoning_high
+RESUME_LOW  ?=
+RESUME_HIGH ?=
+
+eval-a3-reasoning-resume:
+	@if [ -z "$(RESUME_LOW)" ] || [ -z "$(RESUME_HIGH)" ]; then \
+		echo "Usage: make eval-a3-reasoning-resume RESUME_LOW=<run_id> RESUME_HIGH=<run_id>"; \
+		exit 1; \
+	fi
+	@echo "Resuming A3 reasoning experiments..."
+	@echo "  LOW  → $(RESUME_LOW)"
+	@echo "  HIGH → $(RESUME_HIGH)"
+	@mkdir -p logs
+	@$(PYTHON) -m oncology_rag.cli.eval single \
+		--experiment $(EXPERIMENT_A3_LOW) \
+		--dataset $(DATASET_VALIDATED) \
+		--provider-config $(PROVIDER_CONFIG) \
+		--runs-dir $(RUNS_DIR) \
+		--resume-run-id $(RESUME_LOW) 2>&1 | tee -a logs/a3_reasoning_low.log & \
+	$(PYTHON) -m oncology_rag.cli.eval single \
+		--experiment $(EXPERIMENT_A3_HIGH) \
+		--dataset $(DATASET_VALIDATED) \
+		--provider-config $(PROVIDER_CONFIG) \
+		--runs-dir $(RUNS_DIR) \
+		--resume-run-id $(RESUME_HIGH) 2>&1 | tee -a logs/a3_reasoning_high.log & \
+	wait
+	@echo "Both reasoning experiments completed."
 
 # =============================================================================
 # REPORTS

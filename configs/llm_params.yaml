@@ -1,0 +1,9 @@
+# Single source of truth for LLM request parameters.
+# Applied consistently to ALL models (A1, A2, A3) unless overridden by experiment.
+# Guarantees comparable behavior across providers and model families.
+
+temperature: 0.2
+max_tokens: 16384
+
+provider:
+  allow_fallbacks: true
