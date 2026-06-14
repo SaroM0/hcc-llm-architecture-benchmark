@@ -11,8 +11,7 @@ Core library and experiment scaffold for agentic RAG in oncology.
 ## CLI
 
 - Ingest: `python -m oncology_rag.cli.ingest --config configs/default.yaml`
-- Chat: `python -m oncology_rag.cli.chat --config configs/default.yaml`
-- Eval: `python -m oncology_rag.cli.eval --config configs/default.yaml`
+- Eval: `python -m oncology_rag.cli.eval matrix --dataset data/eval/sct_validated_ground_truth.csv`
 
 ## Makefile Commands
 

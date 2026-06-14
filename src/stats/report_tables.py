@@ -190,7 +190,6 @@ def _plot_latency_ecdf(df, output_path: Path) -> None:
 
 
 def _plot_confusion_matrix(df, output_path: Path, model_key: str) -> None:
-    import numpy as np
     import pandas as pd
     import matplotlib.pyplot as plt
 
@@ -223,7 +222,6 @@ def _plot_confusion_matrix(df, output_path: Path, model_key: str) -> None:
 
 
 def _plot_cd_diagram(rank_df, output_path: Path, n_units: int, alpha: float = 0.05) -> None:
-    import numpy as np
     import matplotlib.pyplot as plt
     from scipy.stats import studentized_range
 
@@ -508,7 +506,6 @@ def main() -> None:
 
     # Critical difference diagram
     if not pivot.empty:
-        rank_rows = []
         ranks = []
         for _, row in pivot.iterrows():
             scores = row.values

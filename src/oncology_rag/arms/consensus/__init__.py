@@ -1,4 +1,4 @@
-"""Shared multi-agent consensus system for A2 and A3 arms."""
+"""Shared multi-agent consensus graph components."""
 
 from oncology_rag.arms.consensus.state import ConsensusState, DoctorOutput, SupervisorDecision
 from oncology_rag.arms.consensus.prompts import (

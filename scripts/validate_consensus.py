@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate A2/A3 consensus arms end-to-end with mocked LLM (no API required)."""
+"""Validate consensus RAG arm end-to-end with mocked LLM (no API required)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from pathlib import Path
 # Add src to path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from oncology_rag.arms.a3_consensus_rag import A3ConsensusRagSmall
+from oncology_rag.arms.consensus_rag import ConsensusRagArm
 from oncology_rag.common.types import QAItem, RunContext
 from oncology_rag.llm.params import resolve_llm_params
 from oncology_rag.llm.router import ModelRouter
@@ -70,7 +70,10 @@ def main() -> int:
     client = MockClient()
     retriever = MockRetriever()
 
-    arm = A3ConsensusRagSmall(
+    arm = ConsensusRagArm(
+        arm_id="A3",
+        model_role="consensus_small",
+        model_class="small",
         llm_router=router,
         client=client,
         retriever=retriever,
@@ -93,7 +96,7 @@ def main() -> int:
         llm_params=llm_params,
     )
 
-    print("Running A3 consensus (mocked LLM)...")
+    print("Running consensus RAG arm (mocked LLM)...")
     output = arm.run_one(context, item)
 
     prediction = output.prediction
@@ -114,7 +117,7 @@ def main() -> int:
     print("  Consensus reached:", debug.get("consensus_reached"))
     print("  Rounds:", debug.get("total_rounds"))
     print("  Hepatologist specialty:", debug["specialist_assessments"]["hepatologist"])
-    print("OK: A3 consensus validation passed.")
+    print("OK: consensus RAG validation passed.")
     return 0
 
 

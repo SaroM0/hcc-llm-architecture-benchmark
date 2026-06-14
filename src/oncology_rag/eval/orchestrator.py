@@ -25,7 +25,6 @@ from oncology_rag.eval.runner import (
 )
 from oncology_rag.eval.sct.metrics import (
     SCTScorer,
-    calculate_sct_metrics,
     extract_score_from_response,
     NUMERIC_TO_SCORE,
 )
@@ -139,7 +138,6 @@ class ExperimentOrchestrator:
         retrieval_config_path: Path | None = None,
         limit: int | None = None,
     ) -> None:
-        self._provider_config_path = provider_config_path
         self._dataset_path = dataset_path
         self._runs_dir = runs_dir
         self._embeddings_config_path = embeddings_config_path

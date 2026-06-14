@@ -13,12 +13,3 @@ rag:
   chunking: rag/chunking.yaml
   retrieval: rag/retrieval.yaml
   embeddings: rag/embeddings.yaml
-
-agents:
-  graph: configs/agents/graph.yaml
-  prompts: configs/agents/prompts.yaml
-
-eval:
-  datasets: configs/eval/datasets.yaml
-  metrics: configs/eval/metrics.yaml
-  runs: configs/eval/runs.yaml

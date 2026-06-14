@@ -21,9 +21,10 @@ endif
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
-PYTHON := PYTHONPATH=src python3
-DATASET := data/eval/sct_items_hepa_icca.json
-DATASET_SMOKE := $(firstword $(wildcard data/eval/sct_items_hepa_icca_smoke.json) data/eval/sct_validated_ground_truth.csv)
+PYTHON_BIN := $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
+PYTHON := PYTHONPATH=src $(PYTHON_BIN)
+DATASET := data/eval/sct_validated_ground_truth.csv
+DATASET_SMOKE := data/eval/sct_validated_ground_truth.csv
 DATASET_VALIDATED := data/eval/sct_validated_ground_truth.csv
 PROVIDER_CONFIG := configs/providers/openrouter.yaml
 EMBEDDINGS_CONFIG := configs/rag/embeddings.yaml
@@ -34,8 +35,8 @@ RUNS_DIR := runs
 DEFAULT_SMALL_MODEL := qwen3_vl_30b
 
 # Reasoning effort experiment configs
-EXPERIMENT_A3_LOW  := configs/experiments/a3_qwen_reasoning_low.yaml
-EXPERIMENT_A3_HIGH := configs/experiments/a3_qwen_reasoning_high.yaml
+EXPERIMENT_A3_LOW  := configs/experiments/qwen_reasoning_low.yaml
+EXPERIMENT_A3_HIGH := configs/experiments/qwen_reasoning_high.yaml
 
 # =============================================================================
 # HELP
@@ -58,8 +59,7 @@ help:
 	@echo ""
 	@echo "Smoke Tests (2 items, quick validation):"
 	@echo "  smoke         Run smoke tests for all arms (A1-A3)"
-	@echo "  smoke         Run smoke tests for all arms (A1-A3)"
-	@echo "  smoke-a1      Smoke test for A1 (oneshot)"
+		@echo "  smoke-a1      Smoke test for A1 (oneshot)"
 	@echo "  smoke-a2      Smoke test for A2 (consensus large)"
 	@echo "  smoke-a3      Smoke test for A3 (consensus small)"
 	@echo "  smoke-models  Test each model with 1 item per arm (consistency check)"
@@ -107,7 +107,7 @@ help:
 # =============================================================================
 install:
 	@echo "Installing package in development mode..."
-	pip install -e .
+	$(PYTHON_BIN) -m pip install -e ".[dev]"
 
 check-env:
 	@echo "Checking environment..."
@@ -142,8 +142,11 @@ lint:
 	$(PYTHON) -m ruff check src/ scripts/
 
 test:
-	@echo "Running unit tests..."
-	$(PYTHON) -m pytest tests/ -v
+		@echo "Running local validation suite..."
+		$(PYTHON) -m compileall -q src scripts
+		$(PYTHON) scripts/validate_consensus.py
+		$(PYTHON) -m oncology_rag.cli.eval --help >/dev/null
+		$(PYTHON) -m oncology_rag.cli.ingest --help >/dev/null
 
 validate-consensus:
 	@echo "Validating A2/A3 consensus (mocked LLM, no API)..."
@@ -481,8 +484,8 @@ eval-a3-reasoning:
 
 # Resume partial runs. Usage:
 #   make eval-a3-reasoning-resume \
-#     RESUME_LOW=20260322_205349_A3_qwen_reasoning_low \
-#     RESUME_HIGH=20260322_205349_A3_qwen_reasoning_high
+#     RESUME_LOW=20260322_205349_consensus_qwen_reasoning_low \
+#     RESUME_HIGH=20260322_205349_consensus_qwen_reasoning_high
 RESUME_LOW  ?=
 RESUME_HIGH ?=
 

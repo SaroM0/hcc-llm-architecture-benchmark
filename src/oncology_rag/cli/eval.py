@@ -37,7 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     single.add_argument(
         "--resume-run-id",
         default=None,
-        help="Resume a partial run by its run_id (e.g. 20260322_205349_A3_qwen_reasoning_low).",
+        help="Resume a partial run by its run_id.",
     )
 
     # Full matrix experiment
@@ -102,42 +102,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Limit number of items to evaluate (for testing).",
     )
 
-    # Legacy support: if no subcommand, treat as single
-    parser.add_argument(
-        "--experiment",
-        help="Path to experiment config YAML (legacy mode).",
-    )
-    parser.add_argument(
-        "--dataset",
-        help="Path to dataset (legacy mode).",
-    )
-    parser.add_argument(
-        "--provider-config",
-        default="configs/providers/openrouter.yaml",
-        help="Provider config YAML (legacy mode).",
-    )
-    parser.add_argument(
-        "--runs-dir",
-        default="runs",
-        help="Directory for run artifacts (legacy mode).",
-    )
-
     return parser
 
 
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
-
-    # Legacy mode: if --experiment is provided without subcommand
-    if args.command is None and args.experiment:
-        run_experiment(
-            experiment_path=Path(args.experiment),
-            dataset_path=Path(args.dataset),
-            provider_config_path=Path(args.provider_config),
-            runs_dir=Path(args.runs_dir),
-        )
-        return
 
     if args.command == "single":
         run_experiment(

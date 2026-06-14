@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from oncology_rag.eval.sct.loader import load_sct_as_qa_items
+from oncology_rag.eval.sct.loader import load_sct_as_qa_items, load_validated_csv_as_qa_items
 from oncology_rag.eval.sct.metrics import calculate_sct_metrics
 
 
@@ -44,6 +44,12 @@ def _latest_runs(runs_dir: Path) -> dict[str, Path]:
             if current is None or mtime > current[0]:
                 run_map[exp_id] = (mtime, run_dir)
     return {key: value[1] for key, value in run_map.items()}
+
+
+def _load_qa_items(dataset_path: Path) -> list[Any]:
+    if dataset_path.suffix.lower() in {".csv", ".tsv"}:
+        return load_validated_csv_as_qa_items(dataset_path)
+    return load_sct_as_qa_items(dataset_path)
 
 
 def _build_metrics(
@@ -104,7 +110,7 @@ def _svg_bar_chart(
 
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}">',
-        f'<rect width="100%" height="100%" fill="#ffffff"/>',
+        '<rect width="100%" height="100%" fill="#ffffff"/>',
         f'<text x="{width/2:.1f}" y="32" text-anchor="middle" font-size="18" '
         f'font-family="Arial, sans-serif">{title}</text>',
         f'<line x1="{margin}" y1="{margin}" x2="{margin}" y2="{margin + chart_h}" '
@@ -159,7 +165,7 @@ def _svg_bar_chart(
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate smoke test report charts.")
     parser.add_argument("--runs-dir", default="runs", help="Runs directory.")
-    parser.add_argument("--dataset", required=True, help="SCT dataset JSON path.")
+    parser.add_argument("--dataset", required=True, help="SCT JSON or validated CSV path.")
     parser.add_argument(
         "--output-dir",
         default="runs/reports",
@@ -177,7 +183,7 @@ def main() -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    qa_items = load_sct_as_qa_items(Path(args.dataset))
+    qa_items = _load_qa_items(Path(args.dataset))
     expected_map = {item.question_id: item.metadata.get("expected_answer") for item in qa_items}
 
     latest = _latest_runs(runs_dir)

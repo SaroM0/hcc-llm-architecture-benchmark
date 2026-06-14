@@ -7,7 +7,13 @@ Description-Content-Type: text/markdown
 Requires-Dist: PyYAML>=6.0
 Requires-Dist: chromadb>=0.5.0
 Requires-Dist: langgraph>=0.2.0
-Requires-Dist: langchain-core>=0.3.0
+Provides-Extra: dev
+Requires-Dist: ruff>=0.8.0; extra == "dev"
+Provides-Extra: report
+Requires-Dist: matplotlib>=3.8.0; extra == "report"
+Requires-Dist: numpy>=1.26.0; extra == "report"
+Requires-Dist: pandas>=2.0.0; extra == "report"
+Requires-Dist: scipy>=1.11.0; extra == "report"
 
 # oncology-agentic-rag
 
@@ -22,8 +28,7 @@ Core library and experiment scaffold for agentic RAG in oncology.
 ## CLI
 
 - Ingest: `python -m oncology_rag.cli.ingest --config configs/default.yaml`
-- Chat: `python -m oncology_rag.cli.chat --config configs/default.yaml`
-- Eval: `python -m oncology_rag.cli.eval --config configs/default.yaml`
+- Eval: `python -m oncology_rag.cli.eval matrix --dataset data/eval/sct_validated_ground_truth.csv`
 
 ## Makefile Commands
 
@@ -39,11 +44,10 @@ make check-env  # Verify environment and dependencies
 ### Smoke Tests (2 items, quick validation)
 
 ```bash
-make smoke      # Run all smoke tests (A1-A4)
+make smoke      # Run all smoke tests (A1-A3)
 make smoke-a1   # A1: oneshot
-make smoke-a2   # A2: oneshot + RAG
-make smoke-a3   # A3: consensus
-make smoke-a4   # A4: consensus + RAG
+make smoke-a2   # A2: consensus large
+make smoke-a3   # A3: consensus small
 ```
 
 ### Evaluation Tests (small models only)

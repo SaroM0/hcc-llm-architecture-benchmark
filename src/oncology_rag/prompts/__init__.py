@@ -1,1 +1,1 @@
-"""Module placeholder."""
+"""Prompt loading and construction helpers."""

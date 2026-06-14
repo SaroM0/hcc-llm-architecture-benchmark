@@ -1,1 +1,1 @@
-"""Module placeholder."""
+"""Command-line entrypoints."""

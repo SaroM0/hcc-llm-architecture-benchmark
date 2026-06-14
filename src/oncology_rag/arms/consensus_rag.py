@@ -1,8 +1,9 @@
-"""A3 Multi-Agent Consensus RAG arm for small models."""
+"""Parameterized multi-agent consensus RAG arm."""
 
 from __future__ import annotations
 
 import time
+from collections import Counter
 from typing import Any, Mapping
 
 from oncology_rag.arms.base import ArmOutput
@@ -15,22 +16,15 @@ from oncology_rag.observability.events import ConsensusCompleteEvent
 from oncology_rag.retrieval.retriever import Retriever, RetrievalResult
 
 
-class A3ConsensusRagSmall:
-    """Multi-agent consensus RAG arm for small models.
-
-    This arm implements a deliberation process where:
-    - Evidence is retrieved from ChromaDB
-    - Three specialist doctors (Hepatologist, Oncologist, Radiologist) analyze the case
-    - Each specialist provides their assessment based on their expertise
-    - A supervisor evaluates consensus and determines the final answer
-    - Uses small models via the 'consensus_small' role
-    """
-
-    arm_id = "A3"
+class ConsensusRagArm:
+    """Multi-agent consensus RAG arm parameterized by model role."""
 
     def __init__(
         self,
         *,
+        arm_id: str,
+        model_role: str,
+        model_class: str,
         llm_router: ModelRouter,
         client: OpenRouterClient,
         retriever: Retriever,
@@ -39,6 +33,9 @@ class A3ConsensusRagSmall:
         max_rounds: int = 13,
         safety_policy: str | None = None,
     ) -> None:
+        self.arm_id = arm_id
+        self._model_role = model_role
+        self._model_class = model_class
         self._llm_router = llm_router
         self._client = client
         self._retriever = retriever
@@ -79,7 +76,7 @@ class A3ConsensusRagSmall:
         total_started = time.monotonic()
 
         resolution = self._llm_router.for_role(
-            "consensus_small", overrides=context.role_overrides
+            self._model_role, overrides=context.role_overrides
         )
         model_id = resolution.model.model_id
         model_key = resolution.model.key
@@ -106,7 +103,10 @@ class A3ConsensusRagSmall:
                 "Your assessment MUST include a score."
             )
         else:
-            task = "Provide a clinical assessment based on the case information and retrieved evidence."
+            task = (
+                "Provide a clinical assessment based on the case information "
+                "and retrieved evidence."
+            )
 
         initial_state: ConsensusState = {
             "case": item.question,
@@ -159,18 +159,17 @@ class A3ConsensusRagSmall:
         if not final_answer and supervisor_decision:
             final_answer = supervisor_decision.final_answer or ""
 
-        # Majority-vote fallback: if supervisor failed to produce a parseable score,
-        # use the plurality of the three doctors' last-round scores.
+        # If the supervisor failed to produce a parseable score, use the
+        # plurality of the three doctors' last-round scores.
         if not final_answer:
-            from collections import Counter
-            _valid_scores = {"+2", "+1", "0", "-1", "-2"}
-            _doctor_scores = [
+            valid_scores = {"+2", "+1", "0", "-1", "-2"}
+            doctor_scores = [
                 out.hypothesis_assessment
-                for _key in ("hepatologist_output", "oncologist_output", "radiologist_output")
-                if (out := final_state.get(_key)) and out.hypothesis_assessment in _valid_scores
+                for key in ("hepatologist_output", "oncologist_output", "radiologist_output")
+                if (out := final_state.get(key)) and out.hypothesis_assessment in valid_scores
             ]
-            if _doctor_scores:
-                final_answer = Counter(_doctor_scores).most_common(1)[0][0]
+            if doctor_scores:
+                final_answer = Counter(doctor_scores).most_common(1)[0][0]
 
         all_citations = list(set(final_state.get("all_citations", [])))
         retrieved_evidence = final_state.get("retrieved_evidence", [])
@@ -187,7 +186,7 @@ class A3ConsensusRagSmall:
             "consensus_reached": consensus_reached,
             "total_rounds": final_round,
             "max_rounds": self._max_rounds,
-            "model_class": "small",
+            "model_class": self._model_class,
             "final_confidence": final_confidence,
             "top_k": self._top_k,
             "evidence_count": len(retrieved_evidence),
@@ -222,14 +221,18 @@ class A3ConsensusRagSmall:
         if supervisor_decision:
             debug_info["supervisor"] = {
                 "consensus_reached": supervisor_decision.consensus_reached,
-                "reasoning": supervisor_decision.reasoning[:500] if supervisor_decision.reasoning else "",
+                "reasoning": (
+                    supervisor_decision.reasoning[:500]
+                    if supervisor_decision.reasoning
+                    else ""
+                ),
                 "areas_of_agreement": supervisor_decision.areas_of_agreement,
                 "areas_of_disagreement": supervisor_decision.areas_of_disagreement,
             }
 
         used_models = [
             UsedModel(
-                role="consensus_small",
+                role=self._model_role,
                 model_key=resolution.model.key,
                 model_id=model_id,
             )

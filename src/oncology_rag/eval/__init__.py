@@ -1,1 +1,1 @@
-"""Module placeholder."""
+"""Evaluation runners, scoring, and artifacts."""

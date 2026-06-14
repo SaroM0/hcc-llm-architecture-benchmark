@@ -11,9 +11,8 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping
 
 from oncology_rag.arms.a1_oneshot import A1OneShot
-from oncology_rag.arms.a2_consensus import A2ConsensusRagLarge
-from oncology_rag.arms.a3_consensus_rag import A3ConsensusRagSmall
 from oncology_rag.arms.base import Arm, ArmOutput
+from oncology_rag.arms.consensus_rag import ConsensusRagArm
 from oncology_rag.common.types import QAItem, RunContext
 from oncology_rag.llm.openrouter_client import OpenRouterClient, OpenRouterConfig
 from oncology_rag.llm.params import resolve_llm_params
@@ -145,21 +144,15 @@ def _resolve_arm(
 ) -> Arm:
     if arm_id == "A1":
         return A1OneShot(llm_router=llm_router, client=client)
-    if arm_id == "A2":
+    if arm_id in ("A2", "A3"):
         if retriever is None or top_k is None:
-            raise ValueError("A2 requires a retriever and top_k")
-        return A2ConsensusRagLarge(
-            llm_router=llm_router,
-            client=client,
-            retriever=retriever,
-            top_k=top_k,
-            filters=filters,
-            max_rounds=max_rounds or 13,
-        )
-    if arm_id == "A3":
-        if retriever is None or top_k is None:
-            raise ValueError("A3 requires a retriever and top_k")
-        return A3ConsensusRagSmall(
+            raise ValueError(f"{arm_id} requires a retriever and top_k")
+        model_role = "consensus_large" if arm_id == "A2" else "consensus_small"
+        model_class = "large" if arm_id == "A2" else "small"
+        return ConsensusRagArm(
+            arm_id=arm_id,
+            model_role=model_role,
+            model_class=model_class,
             llm_router=llm_router,
             client=client,
             retriever=retriever,

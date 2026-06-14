@@ -188,6 +188,9 @@ def load_dataset_items(dataset_path: Path) -> dict[str, dict[str, Any]]:
     Returns:
         Dictionary mapping (normalized_key) -> item data.
     """
+    if dataset_path.suffix.lower() in {".csv", ".tsv"}:
+        return _load_validated_dataset_items(dataset_path)
+
     with open(dataset_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
@@ -217,6 +220,35 @@ def load_dataset_items(dataset_path: Path) -> dict[str, dict[str, Any]]:
                 "vignette_text": vignette_text,
             }
 
+    return items_by_key
+
+
+def _load_validated_dataset_items(dataset_path: Path) -> dict[str, dict[str, Any]]:
+    """Load validated ground-truth CSV/TSV and create a lookup index."""
+    items_by_key: dict[str, dict[str, Any]] = {}
+    with open(dataset_path, "r", encoding="utf-8") as f:
+        first_line = f.readline()
+        delimiter = "\t" if "\t" in first_line else ","
+        f.seek(0)
+        reader = csv.DictReader(f, delimiter=delimiter)
+        if reader.fieldnames is None:
+            raise ValueError(f"CSV {dataset_path} has no header row")
+        for idx, row in enumerate(reader):
+            question_id = (row.get("question_id") or f"q_{idx:05d}").strip()
+            vignette_id = (row.get("vignette_id") or "").strip()
+            vignette_text = row.get("vignette", "") or ""
+            hypothesis = row.get("hypothesis", "") or ""
+            new_info = row.get("new_information", "") or ""
+            key = _normalize_text(f"{vignette_text}|{hypothesis}|{new_info}")
+            items_by_key[key] = {
+                "question_id": question_id,
+                "vignette_id": vignette_id,
+                "question_type": row.get("question_type", ""),
+                "hypothesis": hypothesis,
+                "new_information": new_info,
+                "expected_answer": row.get("validated_answer"),
+                "vignette_text": vignette_text,
+            }
     return items_by_key
 
 

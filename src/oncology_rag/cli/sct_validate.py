@@ -417,11 +417,11 @@ def main() -> None:
     print(f"\nValidated items: {stats['validated_total']}")
     print(f"  From verified expert: {stats['verified_expert_questions']}")
     print(f"  From expert agreement: {stats['agreed_questions']}")
-    print(f"\nRejected:")
+    print("\nRejected:")
     print(f"  Experts disagreed: {stats['disagreed_questions']}")
     print(f"  Single expert only: {stats['single_expert_questions']}")
 
-    print(f"\nContributions by expert:")
+    print("\nContributions by expert:")
     for email, count in sorted(stats["by_expert"].items()):
         print(f"  {email}: {count} validated items")
 

@@ -1,1 +1,1 @@
-"""Module placeholder."""
+"""Retrieval, reranking, embeddings, and vector stores."""

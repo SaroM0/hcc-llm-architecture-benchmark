@@ -1,8 +1,0 @@
-id: small_oneshot
-arm: A1
-model_roles:
-  oneshot: gpt_oss_20b
-model_keys:
-  - gpt_oss_20b
-output_schema: null
-rag: false

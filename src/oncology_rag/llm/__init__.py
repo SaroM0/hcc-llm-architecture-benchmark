@@ -1,1 +1,1 @@
-"""Module placeholder."""
+"""LLM clients, model registry, and request parameters."""

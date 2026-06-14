@@ -1,9 +1,0 @@
-id: smoke_consensus
-arm: A2
-model_roles:
-  consensus: gpt_oss_20b
-model_keys:
-  - gpt_oss_20b
-consensus:
-  max_rounds: 1
-output_schema: null

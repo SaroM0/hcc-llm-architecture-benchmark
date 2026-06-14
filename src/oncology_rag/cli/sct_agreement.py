@@ -8,7 +8,6 @@ a detailed manifest.
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 from oncology_rag.analysis.sct_agreement import run_agreement_analysis
@@ -27,7 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dataset",
         required=True,
-        help="Path to SCT dataset JSON file.",
+        help="Path to SCT dataset JSON or validated CSV file.",
     )
     parser.add_argument(
         "--runs-dir",

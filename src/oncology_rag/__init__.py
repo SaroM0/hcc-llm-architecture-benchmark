@@ -1,1 +1,1 @@
-"""Module placeholder."""
+"""Oncology RAG benchmark package."""

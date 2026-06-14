@@ -1,1 +1,1 @@
-"""Module placeholder."""
+"""Shared data types and utilities."""

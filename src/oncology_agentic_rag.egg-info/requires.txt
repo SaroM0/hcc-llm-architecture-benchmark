@@ -1,4 +1,12 @@
 PyYAML>=6.0
 chromadb>=0.5.0
 langgraph>=0.2.0
-langchain-core>=0.3.0
+
+[dev]
+ruff>=0.8.0
+
+[report]
+matplotlib>=3.8.0
+numpy>=1.26.0
+pandas>=2.0.0
+scipy>=1.11.0
