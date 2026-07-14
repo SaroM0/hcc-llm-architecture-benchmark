@@ -32,7 +32,7 @@ CHROMA_CONFIG := configs/rag/chroma.yaml
 RUNS_DIR := runs
 
 # Default model for single-model tests (first small model)
-DEFAULT_SMALL_MODEL := qwen3_vl_30b
+DEFAULT_SMALL_MODEL := qwen3_6_27b
 
 # Reasoning effort experiment configs
 EXPERIMENT_A3_LOW  := configs/experiments/qwen_reasoning_low.yaml
@@ -367,14 +367,14 @@ eval-a3-all:
 # =============================================================================
 # BEST-MODEL EXPERIMENTS (A2 × best large, A3 × best small)
 # Primary comparison: architecture effect (A2 vs A3) with pre-selected models.
-# best_large = gpt52, best_small = qwen3_vl_30b (defined in provider config).
+# best_large = claude_opus_4_8, best_small = qwen3_6_27b (defined in provider config).
 # Auto-resume detects the latest partial run from results/arm=*/run=*.
 # Override with: make eval-a2-best-resume RESUME=<run_id>
 # =============================================================================
 _LATEST_A2_RUN := $(shell ls -1d results/arm=A2/run=* 2>/dev/null | sort -r | head -1 | sed 's|results/arm=A2/run=||')
 _LATEST_A3_RUN := $(shell ls -1d results/arm=A3/run=* 2>/dev/null | sort -r | head -1 | sed 's|results/arm=A3/run=||')
 eval-a2-best:
-	@echo "Running A2 on validated ground truth (best large model: gpt52)..."
+	@echo "Running A2 on validated ground truth (best large model: claude_opus_4_8)..."
 	$(PYTHON) -m oncology_rag.cli.eval matrix \
 		--dataset $(DATASET_VALIDATED) \
 		--provider-config $(PROVIDER_CONFIG) \
@@ -385,7 +385,7 @@ eval-a2-best:
 		--model-groups best_large
 
 eval-a3-best:
-	@echo "Running A3 on validated ground truth (best small model: qwen3_vl_30b)..."
+	@echo "Running A3 on validated ground truth (best small model: qwen3_6_27b)..."
 	$(PYTHON) -m oncology_rag.cli.eval matrix \
 		--dataset $(DATASET_VALIDATED) \
 		--provider-config $(PROVIDER_CONFIG) \
@@ -424,7 +424,7 @@ eval-a3-best-resume:
 		--resume-run-id $(_A3_RUN)
 
 # =============================================================================
-# REASONING EFFORT EXPERIMENTS (A3 qwen3-vl-30b-thinking, low vs high)
+# REASONING EFFORT EXPERIMENTS (A3 qwen3_6_27b, low vs high)
 # Uses eval single to carry per-experiment llm_params (reasoning.effort).
 # eval-a3-reasoning runs both in parallel and waits for both to finish.
 # Logs are written to logs/a3_reasoning_low.log and logs/a3_reasoning_high.log.

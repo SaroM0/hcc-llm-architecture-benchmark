@@ -213,6 +213,7 @@ class AttemptLogger:
     ) -> None:
         handle = self._open_handle(arm_id, run_id, model_key)
         handle.write(json.dumps(record, ensure_ascii=True) + "\n")
+        handle.flush()
 
     def close(self) -> None:
         for handle in self._handles.values():

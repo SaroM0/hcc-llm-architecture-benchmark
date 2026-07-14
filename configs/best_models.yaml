@@ -1,48 +1,41 @@
 # =============================================================================
-# BEST PERFORMING MODELS (A1 Oneshot Evaluation)
+# SELECTED MODELS FOR A1 ONESHOT EVALUATION
 # =============================================================================
-# Based on evaluation run: 2026-01-24
+# Candidate roster configured for the next A1 run.
 # Dataset: SCT HCC items (88 validated items)
-# Metric: Exact accuracy
 # =============================================================================
 
 best_large:
-  model_key: gpt52
-  model_id: openai/gpt-5.2
-  accuracy: 0.75
-  partial_accuracy: 0.9205
-  latency_seconds: 436.38
+  model_key: claude_opus_4_8
+  model_id: anthropic/claude-opus-4.8
 
 best_small:
-  model_key: qwen3_vl_30b
-  model_id: qwen/qwen3-vl-30b-a3b-thinking
-  accuracy: 0.7273
-  partial_accuracy: 0.8864
-  latency_seconds: 1089.67
+  model_key: qwen3_6_27b
+  model_id: qwen/qwen3.6-27b
 
 # =============================================================================
-# FULL RANKING
+# A1 ROSTER
 # =============================================================================
 ranking_large:
-  - model_key: gpt52
-    accuracy: 0.75
-  - model_key: claude_opus_4
-    accuracy: 0.7159
-  - model_key: mistral_large_2512
-    accuracy: 0.6136
-  - model_key: gemini3pro
-    accuracy: 0.4091
-  - model_key: glm47
-    accuracy: 0.2273
+  - model_key: claude_opus_4_8
+    model_id: anthropic/claude-opus-4.8
+  - model_key: gpt_5_5_pro
+    model_id: openai/gpt-5.5-pro
+  - model_key: gemini_3_1_pro_preview
+    model_id: google/gemini-3.1-pro-preview
+  - model_key: qwen3_7_max
+    model_id: qwen/qwen3.7-max
+  - model_key: kimi_k2_6
+    model_id: moonshotai/kimi-k2.6
 
 ranking_small:
-  - model_key: qwen3_vl_30b
-    accuracy: 0.7273
-  - model_key: gemma3_27b
-    accuracy: 0.6818
-  - model_key: ministral_14b
-    accuracy: 0.6364
+  - model_key: qwen3_6_27b
+    model_id: qwen/qwen3.6-27b
   - model_key: gpt_oss_20b
-    accuracy: 0.6136
-  - model_key: nemotron_3_nano
-    accuracy: 0.5682
+    model_id: openai/gpt-oss-20b
+  - model_key: gemma_4_26b_a4b_it
+    model_id: google/gemma-4-26b-a4b-it
+  - model_key: qwen3_5_27b
+    model_id: qwen/qwen3.5-27b
+  - model_key: qwen3_5_9b
+    model_id: qwen/qwen3.5-9b

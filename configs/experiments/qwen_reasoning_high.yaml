@@ -1,9 +1,9 @@
 id: consensus_qwen_reasoning_high
 arm: A3
 model_roles:
-  consensus_small: qwen3_vl_30b
+  consensus_small: qwen3_6_27b
 model_keys:
-  - qwen3_vl_30b
+  - qwen3_6_27b
 consensus:
   max_rounds: 13
 retrieval:

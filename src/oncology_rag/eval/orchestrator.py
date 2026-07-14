@@ -508,7 +508,7 @@ def run_full_matrix(
         model_groups: List of model groups to run (default: all).
         models: Optional list of specific model keys (overrides model_groups).
         limit: Optional limit on number of items to evaluate.
-        resume_from: Experiment ID to resume from (e.g., "A1_gpt52").
+        resume_from: Experiment ID to resume from (e.g., "A1_gpt_5_5_pro").
 
     Returns:
         List of ExperimentResult for all configurations.

@@ -1,7 +1,17 @@
 id: A1
 arm: A1
 model_roles:
-  oneshot: qwen3_vl_30b
-model_group: all
+  oneshot: qwen3_6_27b
+model_keys:
+  - claude_opus_4_8
+  - gpt_5_5_pro
+  - gemini_3_1_pro_preview
+  - qwen3_7_max
+  - kimi_k2_6
+  - qwen3_6_27b
+  - gpt_oss_20b
+  - gemma_4_26b_a4b_it
+  - qwen3_5_27b
+  - qwen3_5_9b
 output_schema: null
 rag: false

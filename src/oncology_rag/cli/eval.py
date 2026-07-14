@@ -88,7 +88,7 @@ def build_parser() -> argparse.ArgumentParser:
     matrix.add_argument(
         "--resume-from",
         default=None,
-        help="Experiment ID to resume from (e.g., A1_gpt52).",
+        help="Experiment ID to resume from (e.g., A1_gpt_5_5_pro).",
     )
     matrix.add_argument(
         "--resume-run-id",
