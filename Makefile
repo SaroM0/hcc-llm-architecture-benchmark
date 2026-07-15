@@ -1,567 +1,128 @@
-.PHONY: help install check-env format lint test ingest \
-	validate-consensus \
-	smoke smoke-a1 smoke-a2 smoke-a3 smoke-models \
-	test-mini test-small test-medium test-full \
-	eval-a1-large eval-a1-small eval-a1-all \
-	eval-a2-large eval-a2-small eval-a2-all \
-	eval-a3-large eval-a3-small eval-a3-all \
-	eval-a2-best eval-a3-best eval-a2-best-resume eval-a3-best-resume \
-	smoke-a3-reasoning-low smoke-a3-reasoning-high smoke-a3-reasoning \
-	eval-a3-reasoning-low eval-a3-reasoning-high eval-a3-reasoning eval-a3-reasoning-resume \
-	report report-smoke sct-agreement sct-validate clean-runs
+.PHONY: help install check-env format lint test validate-consensus ingest \
+	smoke smoke-a1 smoke-a2 smoke-a3 eval-a1 eval-a2 eval-a3 eval-all \
+	report sct-agreement sct-validate clean clean-runs
 
-# =============================================================================
-# LOAD .env FILE (if exists)
-# =============================================================================
 ifneq (,$(wildcard .env))
-    include .env
-    export
+include .env
+export
 endif
 
-# =============================================================================
-# CONFIGURATION
-# =============================================================================
 PYTHON_BIN := $(if $(wildcard .venv/bin/python),.venv/bin/python,python3)
 PYTHON := PYTHONPATH=src $(PYTHON_BIN)
 DATASET := data/eval/sct_validated_ground_truth.csv
-DATASET_SMOKE := data/eval/sct_validated_ground_truth.csv
-DATASET_VALIDATED := data/eval/sct_validated_ground_truth.csv
 PROVIDER_CONFIG := configs/providers/openrouter.yaml
 EMBEDDINGS_CONFIG := configs/rag/embeddings.yaml
 CHROMA_CONFIG := configs/rag/chroma.yaml
+CORPUS_DIR := data/raw/markdown/hcc
 RUNS_DIR := runs
+A1_GROUP ?= all
+A2_GROUP ?= large
+A3_GROUP ?= small
+LIMIT_ARG := $(if $(LIMIT),--limit $(LIMIT),)
 
-# Default model for single-model tests (first small model)
-DEFAULT_SMALL_MODEL := qwen3_6_27b
-
-# Reasoning effort experiment configs
-EXPERIMENT_A3_LOW  := configs/experiments/qwen_reasoning_low.yaml
-EXPERIMENT_A3_HIGH := configs/experiments/qwen_reasoning_high.yaml
-
-# =============================================================================
-# HELP
-# =============================================================================
 help:
 	@echo "Oncology RAG Evaluation Framework"
 	@echo ""
-	@echo "Usage: make <target>"
+	@echo "Setup:       install check-env ingest"
+	@echo "Development: format lint test validate-consensus"
+	@echo "Smoke:       smoke smoke-a1 smoke-a2 smoke-a3"
+	@echo "Evaluation:  eval-a1 eval-a2 eval-a3 eval-all"
+	@echo "Analysis:    report sct-agreement sct-validate"
+	@echo "Maintenance: clean clean-runs"
 	@echo ""
-	@echo "Setup:"
-	@echo "  install       Install package in development mode"
-	@echo "  check-env     Verify environment and dependencies"
-	@echo ""
-	@echo "Development:"
-	@echo "  format        Format code"
-	@echo "  lint          Run linters"
-	@echo "  test          Run unit tests"
-	@echo "  validate-consensus  Validate A2/A3 consensus (mocked, no API)"
-	@echo "  ingest        Ingest documents into vector store"
-	@echo ""
-	@echo "Smoke Tests (2 items, quick validation):"
-	@echo "  smoke         Run smoke tests for all arms (A1-A3)"
-		@echo "  smoke-a1      Smoke test for A1 (oneshot)"
-	@echo "  smoke-a2      Smoke test for A2 (consensus large)"
-	@echo "  smoke-a3      Smoke test for A3 (consensus small)"
-	@echo "  smoke-models  Test each model with 1 item per arm (consistency check)"
-	@echo ""
-	@echo "Evaluation Tests (small models only):"
-	@echo "  test-mini     Run with 5 items, 1 small model, all arms"
-	@echo "  test-small    Run with 50 items, all small models, all arms"
-	@echo "  test-medium   Run with 100 items, all small models, all arms"
-	@echo ""
-	@echo "Full Evaluation:"
-	@echo "  test-full     Run full evaluation (200 items, all models, all arms)"
-	@echo "  eval-a1-large Run A1 on validated ground truth (large models)"
-	@echo "  eval-a1-small Run A1 on validated ground truth (small models)"
-	@echo "  eval-a1-all   Run A1 on validated ground truth (large + small)"
-	@echo "  eval-a2-large Run A2 on validated ground truth (large models)"
-	@echo "  eval-a2-small Run A2 on validated ground truth (small models)"
-	@echo "  eval-a2-all   Run A2 on validated ground truth (large + small)"
-	@echo "  eval-a3-large Run A3 on validated ground truth (large models)"
-	@echo "  eval-a3-small Run A3 on validated ground truth (small models)"
-	@echo "  eval-a3-all   Run A3 on validated ground truth (large + small)"
-	@echo ""
-	@echo "Reports:"
-	@echo "  report        Generate reports from latest runs"
-	@echo "  report-smoke  Generate smoke test report"
-	@echo ""
-	@echo "Analysis:"
-	@echo "  sct-agreement Analyze expert vs model agreement (requires RESPONSES_CSV)"
-	@echo "                Usage: make sct-agreement RESPONSES_CSV=path/to/responses.csv"
-	@echo "  sct-validate  Generate validated ground truth from expert responses"
-	@echo "                Usage: make sct-validate RESPONSES_CSV=path/to/responses.csv"
-	@echo ""
-	@echo "Reasoning Effort (A3 qwen, parallel):"
-	@echo "  smoke-a3-reasoning-low   Smoke test A3 qwen reasoning=low (smoke dataset)"
-	@echo "  smoke-a3-reasoning-high  Smoke test A3 qwen reasoning=high (smoke dataset)"
-	@echo "  smoke-a3-reasoning       Smoke both reasoning variants sequentially"
-	@echo "  eval-a3-reasoning-low    Full eval A3 qwen reasoning=low (validated GT)"
-	@echo "  eval-a3-reasoning-high   Full eval A3 qwen reasoning=high (validated GT)"
-	@echo "  eval-a3-reasoning        Run low AND high in PARALLEL (logs/ dir)"
-	@echo ""
-	@echo "Maintenance:"
-	@echo "  clean-runs    Remove all run artifacts"
+	@echo "Optional: A1_GROUP=... A2_GROUP=... A3_GROUP=... LIMIT=N"
 
-# =============================================================================
-# SETUP
-# =============================================================================
 install:
-	@echo "Installing package in development mode..."
-	$(PYTHON_BIN) -m pip install -e ".[dev]"
+	$(PYTHON_BIN) -m pip install -e ".[dev,report]"
 
 check-env:
-	@echo "Checking environment..."
-	@echo ""
-	@echo "Python: $$(python3 --version)"
-	@test -n "$$OPENROUTER_API_KEY" && echo "OPENROUTER_API_KEY: set" || echo "OPENROUTER_API_KEY: NOT SET (required for API calls)"
-	@test -n "$$OPENROUTER_BASE_URL" && echo "OPENROUTER_BASE_URL: set" || echo "OPENROUTER_BASE_URL: NOT SET (will use default)"
-	@echo ""
-	@echo "Dataset files:"
-	@test -f $(DATASET) && echo "  $(DATASET): OK" || echo "  $(DATASET): MISSING"
-	@test -f $(DATASET_SMOKE) && echo "  $(DATASET_SMOKE): OK" || echo "  $(DATASET_SMOKE): MISSING"
-	@echo ""
-	@echo "Config files:"
-	@test -f $(PROVIDER_CONFIG) && echo "  $(PROVIDER_CONFIG): OK" || echo "  $(PROVIDER_CONFIG): MISSING"
-	@test -f $(EMBEDDINGS_CONFIG) && echo "  $(EMBEDDINGS_CONFIG): OK" || echo "  $(EMBEDDINGS_CONFIG): MISSING"
-	@test -f $(CHROMA_CONFIG) && echo "  $(CHROMA_CONFIG): OK" || echo "  $(CHROMA_CONFIG): MISSING"
-	@echo ""
-	@echo "Vector store:"
-	@test -d data/indexes/chroma && echo "  data/indexes/chroma: OK" || echo "  data/indexes/chroma: NOT FOUND (run 'make ingest' first)"
-	@echo ""
-	@$(PYTHON) -c "from oncology_rag.cli.eval import main; print('Python imports: OK')" 2>/dev/null || echo "Python imports: FAILED (run 'make install' or check PYTHONPATH)"
+	@$(PYTHON_BIN) --version
+	@test -f $(DATASET) && echo "Dataset: OK" || (echo "Dataset: MISSING"; exit 1)
+	@test -f $(PROVIDER_CONFIG) && echo "Provider config: OK" || exit 1
+	@test -d $(CORPUS_DIR) && echo "Canonical corpus: OK" || echo "Canonical corpus: MISSING"
+	@test -d data/indexes/chroma && echo "Chroma index: OK" || echo "Chroma index: MISSING (run make ingest)"
+	@test -n "$$OPENROUTER_API_KEY" && echo "OpenRouter key: set" || echo "OpenRouter key: NOT SET"
+	@$(PYTHON) -c "from oncology_rag.cli.eval import main; print('Imports: OK')"
 
-# =============================================================================
-# DEVELOPMENT
-# =============================================================================
 format:
-	@echo "Formatting code with ruff..."
-	$(PYTHON) -m ruff format src/ scripts/
+	$(PYTHON) -m ruff format src scripts
 
 lint:
-	@echo "Linting code with ruff..."
-	$(PYTHON) -m ruff check src/ scripts/
+	$(PYTHON) -m ruff check src scripts
 
 test:
-		@echo "Running local validation suite..."
-		$(PYTHON) -m compileall -q src scripts
-		$(PYTHON) scripts/validate_consensus.py
-		$(PYTHON) -m oncology_rag.cli.eval --help >/dev/null
-		$(PYTHON) -m oncology_rag.cli.ingest --help >/dev/null
+	$(PYTHON) -m compileall -q src scripts
+	$(PYTHON) scripts/validate_consensus.py
+	$(PYTHON) -m oncology_rag.cli.eval --help >/dev/null
+	$(PYTHON) -m oncology_rag.cli.ingest --help >/dev/null
 
 validate-consensus:
-	@echo "Validating A2/A3 consensus (mocked LLM, no API)..."
 	$(PYTHON) scripts/validate_consensus.py
 
 ingest:
-	@echo "Ingesting documents into vector store..."
-	$(PYTHON) -m oncology_rag.cli.ingest --config configs/default.yaml
+	@test -d $(CORPUS_DIR) || (echo "Missing $(CORPUS_DIR)"; exit 1)
+	$(PYTHON) -m oncology_rag.cli.ingest \
+		--config configs/default.yaml \
+		--input $(CORPUS_DIR)
 
-# =============================================================================
-# SMOKE TESTS (2 items each, quick validation)
-# =============================================================================
 smoke: smoke-a1 smoke-a2 smoke-a3
-	@echo ""
-	@echo "All smoke tests completed."
 
 smoke-a1:
-	@echo "Running smoke test for A1 (oneshot)..."
 	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET_SMOKE) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A1 \
-		--model-groups small \
-		--limit 2
+		--dataset $(DATASET) --provider-config $(PROVIDER_CONFIG) \
+		--runs-dir $(RUNS_DIR) --arms A1 --model-groups small --limit 2
 
 smoke-a2:
-	@echo "Running smoke test for A2 (consensus large)..."
 	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET_SMOKE) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A2 \
-		--model-groups small \
-		--limit 2
+		--dataset $(DATASET) --provider-config $(PROVIDER_CONFIG) \
+		--embeddings-config $(EMBEDDINGS_CONFIG) --chroma-config $(CHROMA_CONFIG) \
+		--runs-dir $(RUNS_DIR) --arms A2 --model-groups large --limit 2
 
 smoke-a3:
-	@echo "Running smoke test for A3 (consensus small)..."
 	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET_SMOKE) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A3 \
-		--model-groups small \
-		--limit 2
+		--dataset $(DATASET) --provider-config $(PROVIDER_CONFIG) \
+		--embeddings-config $(EMBEDDINGS_CONFIG) --chroma-config $(CHROMA_CONFIG) \
+		--runs-dir $(RUNS_DIR) --arms A3 --model-groups small --limit 2
 
-smoke-models:
-	@echo "Testing each model with 1 item per arm (A1, A2, A3)..."
-	$(PYTHON) scripts/test_models_consistency.py \
-		--dataset $(DATASET_SMOKE) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR)
-	@echo ""
-	@echo "Model-by-model consistency check completed."
-
-# =============================================================================
-# EVALUATION TESTS (progressive scale, small models)
-# =============================================================================
-test-mini:
-	@echo "Running mini test (5 items, 1 small model, all arms)..."
+eval-a1:
 	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A1 A2 A3 \
-		--model-groups small \
-		--limit 5
+		--dataset $(DATASET) --provider-config $(PROVIDER_CONFIG) \
+		--runs-dir $(RUNS_DIR) --arms A1 --model-groups $(A1_GROUP) $(LIMIT_ARG)
 
-test-small:
-	@echo "Running small test (50 items, all small models, all arms)..."
+eval-a2:
 	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A1 A2 A3 \
-		--model-groups small \
-		--limit 50
+		--dataset $(DATASET) --provider-config $(PROVIDER_CONFIG) \
+		--embeddings-config $(EMBEDDINGS_CONFIG) --chroma-config $(CHROMA_CONFIG) \
+		--runs-dir $(RUNS_DIR) --arms A2 --model-groups $(A2_GROUP) $(LIMIT_ARG)
 
-test-medium:
-	@echo "Running medium test (100 items, all small models, all arms)..."
+eval-a3:
 	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A1 A2 A3 \
-		--model-groups small \
-		--limit 100
+		--dataset $(DATASET) --provider-config $(PROVIDER_CONFIG) \
+		--embeddings-config $(EMBEDDINGS_CONFIG) --chroma-config $(CHROMA_CONFIG) \
+		--runs-dir $(RUNS_DIR) --arms A3 --model-groups $(A3_GROUP) $(LIMIT_ARG)
 
-# =============================================================================
-# FULL EVALUATION (all items, all models)
-# =============================================================================
-test-full:
-	@echo "Running full evaluation (200 items, all models, all arms)..."
-	@echo "This will take a significant amount of time and API credits."
-	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A1 A2 A3 \
-		--model-groups large small
+eval-all: eval-a1 eval-a2 eval-a3
 
-# =============================================================================
-# VALIDATED GROUND TRUTH BY ARM
-# =============================================================================
-eval-a1-large:
-	@echo "Running A1 on validated ground truth (large models)..."
-	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A1 \
-		--model-groups large
-
-eval-a1-small:
-	@echo "Running A1 on validated ground truth (small models)..."
-	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A1 \
-		--model-groups small
-
-eval-a1-all:
-	@echo "Running A1 on validated ground truth (large + small models)..."
-	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A1 \
-		--model-groups large small
-
-eval-a2-large:
-	@echo "Running A2 on validated ground truth (large models)..."
-	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A2 \
-		--model-groups large
-
-eval-a2-small:
-	@echo "Running A2 on validated ground truth (small models)..."
-	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A2 \
-		--model-groups small
-
-eval-a2-all:
-	@echo "Running A2 on validated ground truth (large + small models)..."
-	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A2 \
-		--model-groups large small
-
-eval-a3-large:
-	@echo "Running A3 on validated ground truth (large models)..."
-	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A3 \
-		--model-groups large
-
-eval-a3-small:
-	@echo "Running A3 on validated ground truth (small models)..."
-	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A3 \
-		--model-groups small
-
-eval-a3-all:
-	@echo "Running A3 on validated ground truth (large + small models)..."
-	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A3 \
-		--model-groups large small
-
-# =============================================================================
-# BEST-MODEL EXPERIMENTS (A2 × best large, A3 × best small)
-# Primary comparison: architecture effect (A2 vs A3) with pre-selected models.
-# best_large = claude_opus_4_8, best_small = qwen3_6_27b (defined in provider config).
-# Auto-resume detects the latest partial run from results/arm=*/run=*.
-# Override with: make eval-a2-best-resume RESUME=<run_id>
-# =============================================================================
-_LATEST_A2_RUN := $(shell ls -1d results/arm=A2/run=* 2>/dev/null | sort -r | head -1 | sed 's|results/arm=A2/run=||')
-_LATEST_A3_RUN := $(shell ls -1d results/arm=A3/run=* 2>/dev/null | sort -r | head -1 | sed 's|results/arm=A3/run=||')
-eval-a2-best:
-	@echo "Running A2 on validated ground truth (best large model: claude_opus_4_8)..."
-	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A2 \
-		--model-groups best_large
-
-eval-a3-best:
-	@echo "Running A3 on validated ground truth (best small model: qwen3_6_27b)..."
-	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A3 \
-		--model-groups best_small
-
-eval-a2-best-resume:
-	$(eval _A2_RUN := $(if $(RESUME),$(RESUME),$(_LATEST_A2_RUN)))
-	@[ -n "$(_A2_RUN)" ] || (echo "No partial A2 run found in results/arm=A2/. Run eval-a2-best first."; exit 1)
-	@echo "Resuming A2 best from run $(_A2_RUN)..."
-	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A2 \
-		--model-groups best_large \
-		--resume-run-id $(_A2_RUN)
-
-eval-a3-best-resume:
-	$(eval _A3_RUN := $(if $(RESUME),$(RESUME),$(_LATEST_A3_RUN)))
-	@[ -n "$(_A3_RUN)" ] || (echo "No partial A3 run found in results/arm=A3/. Run eval-a3-best first."; exit 1)
-	@echo "Resuming A3 best from run $(_A3_RUN)..."
-	$(PYTHON) -m oncology_rag.cli.eval matrix \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--embeddings-config $(EMBEDDINGS_CONFIG) \
-		--chroma-config $(CHROMA_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--arms A3 \
-		--model-groups best_small \
-		--resume-run-id $(_A3_RUN)
-
-# =============================================================================
-# REASONING EFFORT EXPERIMENTS (A3 qwen3_6_27b, low vs high)
-# Uses eval single to carry per-experiment llm_params (reasoning.effort).
-# eval-a3-reasoning runs both in parallel and waits for both to finish.
-# Logs are written to logs/a3_reasoning_low.log and logs/a3_reasoning_high.log.
-# =============================================================================
-smoke-a3-reasoning-low:
-	@echo "Smoke: A3 qwen reasoning=low..."
-	$(PYTHON) -m oncology_rag.cli.eval single \
-		--experiment $(EXPERIMENT_A3_LOW) \
-		--dataset $(DATASET_SMOKE) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--runs-dir $(RUNS_DIR)
-
-smoke-a3-reasoning-high:
-	@echo "Smoke: A3 qwen reasoning=high..."
-	$(PYTHON) -m oncology_rag.cli.eval single \
-		--experiment $(EXPERIMENT_A3_HIGH) \
-		--dataset $(DATASET_SMOKE) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--runs-dir $(RUNS_DIR)
-
-smoke-a3-reasoning: smoke-a3-reasoning-low smoke-a3-reasoning-high
-
-eval-a3-reasoning-low:
-	@echo "Running A3 qwen reasoning=low on validated ground truth..."
-	@mkdir -p logs
-	$(PYTHON) -m oncology_rag.cli.eval single \
-		--experiment $(EXPERIMENT_A3_LOW) \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--runs-dir $(RUNS_DIR) 2>&1 | tee logs/a3_reasoning_low.log
-
-eval-a3-reasoning-high:
-	@echo "Running A3 qwen reasoning=high on validated ground truth..."
-	@mkdir -p logs
-	$(PYTHON) -m oncology_rag.cli.eval single \
-		--experiment $(EXPERIMENT_A3_HIGH) \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--runs-dir $(RUNS_DIR) 2>&1 | tee logs/a3_reasoning_high.log
-
-eval-a3-reasoning:
-	@echo "Running A3 qwen reasoning=low AND reasoning=high in parallel..."
-	@echo "Logs: logs/a3_reasoning_low.log | logs/a3_reasoning_high.log"
-	@mkdir -p logs
-	@$(PYTHON) -m oncology_rag.cli.eval single \
-		--experiment $(EXPERIMENT_A3_LOW) \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--runs-dir $(RUNS_DIR) 2>&1 | tee logs/a3_reasoning_low.log & \
-	$(PYTHON) -m oncology_rag.cli.eval single \
-		--experiment $(EXPERIMENT_A3_HIGH) \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--runs-dir $(RUNS_DIR) 2>&1 | tee logs/a3_reasoning_high.log & \
-	wait
-	@echo "Both reasoning experiments completed."
-
-# Resume partial runs. Usage:
-#   make eval-a3-reasoning-resume \
-#     RESUME_LOW=20260322_205349_consensus_qwen_reasoning_low \
-#     RESUME_HIGH=20260322_205349_consensus_qwen_reasoning_high
-RESUME_LOW  ?=
-RESUME_HIGH ?=
-
-eval-a3-reasoning-resume:
-	@if [ -z "$(RESUME_LOW)" ] || [ -z "$(RESUME_HIGH)" ]; then \
-		echo "Usage: make eval-a3-reasoning-resume RESUME_LOW=<run_id> RESUME_HIGH=<run_id>"; \
-		exit 1; \
-	fi
-	@echo "Resuming A3 reasoning experiments..."
-	@echo "  LOW  → $(RESUME_LOW)"
-	@echo "  HIGH → $(RESUME_HIGH)"
-	@mkdir -p logs
-	@$(PYTHON) -m oncology_rag.cli.eval single \
-		--experiment $(EXPERIMENT_A3_LOW) \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--resume-run-id $(RESUME_LOW) 2>&1 | tee -a logs/a3_reasoning_low.log & \
-	$(PYTHON) -m oncology_rag.cli.eval single \
-		--experiment $(EXPERIMENT_A3_HIGH) \
-		--dataset $(DATASET_VALIDATED) \
-		--provider-config $(PROVIDER_CONFIG) \
-		--runs-dir $(RUNS_DIR) \
-		--resume-run-id $(RESUME_HIGH) 2>&1 | tee -a logs/a3_reasoning_high.log & \
-	wait
-	@echo "Both reasoning experiments completed."
-
-# =============================================================================
-# REPORTS
-# =============================================================================
 report:
-	@echo "Generating evaluation report..."
 	$(PYTHON) scripts/smoke_report.py \
-		--runs-dir $(RUNS_DIR) \
-		--dataset $(DATASET) \
-		--output-dir $(RUNS_DIR)/reports
-	@echo "Report generated at $(RUNS_DIR)/reports/"
+		--runs-dir $(RUNS_DIR) --dataset $(DATASET) --output-dir results/reports
 
-report-smoke:
-	@echo "Generating smoke test report..."
-	$(PYTHON) scripts/smoke_report.py \
-		--runs-dir $(RUNS_DIR) \
-		--dataset $(DATASET_SMOKE) \
-		--output-dir $(RUNS_DIR)/reports/smoke
-	@echo "Smoke report generated at $(RUNS_DIR)/reports/smoke/"
-
-# =============================================================================
-# ANALYSIS
-# =============================================================================
 sct-agreement:
-ifndef RESPONSES_CSV
-	$(error RESPONSES_CSV is required. Usage: make sct-agreement RESPONSES_CSV=data/sct_responses/your_file.csv)
-endif
-	@echo "Analyzing SCT expert agreement..."
+	@test -n "$(RESPONSES_CSV)" || (echo "Set RESPONSES_CSV=path/to/responses.csv"; exit 1)
 	$(PYTHON) -m oncology_rag.cli.sct_agreement \
-		--responses $(RESPONSES_CSV) \
-		--dataset $(DATASET) \
-		--runs-dir $(RUNS_DIR)
-	@echo "Agreement analysis complete. Check runs/agreement/ for results."
+		--responses $(RESPONSES_CSV) --dataset $(DATASET) --runs-dir $(RUNS_DIR)
 
 sct-validate:
-ifndef RESPONSES_CSV
-	$(error RESPONSES_CSV is required. Usage: make sct-validate RESPONSES_CSV=data/sct_responses/your_file.csv)
-endif
-	@echo "Generating validated ground truth from expert responses..."
+	@test -n "$(RESPONSES_CSV)" || (echo "Set RESPONSES_CSV=path/to/responses.csv"; exit 1)
 	$(PYTHON) -m oncology_rag.cli.sct_validate \
 		--responses $(RESPONSES_CSV) \
-		--verified-emails user9@gmail.com \
-		--output-csv data/eval/sct_validated_ground_truth.csv \
+		--output-csv $(DATASET) \
 		--output-json data/eval/sct_validated_ground_truth.json
-	@echo "Validated ground truth generated at data/eval/"
 
-# =============================================================================
-# MAINTENANCE
-# =============================================================================
 clean-runs:
-	@echo "Removing all run artifacts..."
-	rm -rf $(RUNS_DIR)/experiments $(RUNS_DIR)/matrix $(RUNS_DIR)/reports
-	@echo "Run artifacts cleaned."
+	rm -rf runs results logs reports
+
+clean: clean-runs
+	rm -rf .pytest_cache .ruff_cache .mypy_cache .cache htmlcov .coverage
+	find src scripts tests -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
+	rm -rf src/*.egg-info

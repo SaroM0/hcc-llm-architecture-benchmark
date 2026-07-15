@@ -2,22 +2,23 @@
 .venv/
 .claude/
 __pycache__/
+*.egg-info/
 *.pyc
 *.pyo
 *.pyd
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.coverage
+htmlcov/
 .cache/
 .DS_Store
 
 # Data: ignore source docs and intermediate artifacts
 data/raw/
+data/indexes/
 data/eval/chunks/
 data/eval/*.bak
-# InstanceRunResults: track selected subdirs, exclude large/transient artifacts
-InstanceRunResults/results/
-InstanceRunResults/matrix/
 
 # Run artifacts and logs
 runs/

@@ -6,7 +6,7 @@ Core library and experiment scaffold for agentic RAG in oncology.
 
 - Copy `.env.example` to `.env` and fill required variables.
 - Configure defaults in `configs/default.yaml` and provider settings in `configs/providers/`.
-- Place source documents in `data/raw/`.
+- Place only the canonical HCC guideline documents in `data/raw/markdown/hcc/`.
 
 ## CLI
 
@@ -24,7 +24,7 @@ make install    # Install package in development mode
 make check-env  # Verify environment and dependencies
 ```
 
-### Smoke Tests (2 items, quick validation)
+### Smoke tests
 
 ```bash
 make smoke      # Run all smoke tests (A1-A3)
@@ -33,18 +33,13 @@ make smoke-a2   # A2: consensus large
 make smoke-a3   # A3: consensus small
 ```
 
-### Evaluation Tests (small models only)
+### Evaluation
 
 ```bash
-make test-mini    # 5 items, all arms, small models
-make test-small   # 50 items, all arms, small models
-make test-medium  # 100 items, all arms, small models
-```
-
-### Full Evaluation
-
-```bash
-make test-full    # 200 items, all arms, all models (large + small)
+make eval-a1      # Baseline, all configured models
+make eval-a2      # Large-model consensus RAG
+make eval-a3      # Small-model consensus RAG
+make eval-all     # A1, A2 and A3
 ```
 
 ### Reports
@@ -62,14 +57,18 @@ make clean-runs   # Remove all run artifacts
 
 ## Markdown ingestion
 
-- Put markdown files under `data/raw/markdown/` (or any folder you prefer).
-- Run: `python -m oncology_rag.cli.ingest --config configs/default.yaml --input data/raw/markdown`
+- Put the five canonical markdown files under `data/raw/markdown/hcc/`.
+- Keep filenames and guideline years aligned with `configs/rag/corpus.yaml`.
+- Run: `python -m oncology_rag.cli.ingest --config configs/default.yaml --input data/raw/markdown/hcc`
 - Optional: add `--dry-run` to see how many chunks would be ingested.
 
 ## Project layout
 
 - `src/oncology_rag/`: core library (no side effects on import)
 - `configs/`: declarative configuration only
-- `data/`: raw, processed, and indexes
-- `runs/`: artifacts from executions
+- `data/eval/`: versioned benchmark data
+- `data/raw/markdown/hcc/`: local canonical source documents (ignored)
+- `data/indexes/`: regenerated local indexes (ignored)
+- `runs/`: ignored raw execution artifacts
+- `results/`: ignored derived tables and reports
 - `docs/`: architecture and evaluation notes

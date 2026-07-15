@@ -1,0 +1,19 @@
+# Canonical HCC corpus. Files are local and ignored because redistribution
+# rights vary; this manifest is the reproducible source inventory.
+root: data/raw/markdown/hcc
+documents:
+  - file: AASLD_2018.md
+    organization: AASLD
+    year: 2018
+  - file: AASLD_2023.md
+    organization: AASLD
+    year: 2023
+  - file: BSG_2024.md
+    organization: BSG
+    year: 2024
+  - file: EASL_2024.md
+    organization: EASL
+    year: 2024
+  - file: ESMO_2025.md
+    organization: ESMO
+    year: 2025
